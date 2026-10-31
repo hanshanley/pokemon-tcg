@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pokemon sales monitor</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <main>
+    <header>
+      <div><p class="eyebrow">TCGPLAYER / OBSERVED SALES</p><h1>Pokemon sales monitor</h1></div>
+      <button id="collect" type="button" disabled>Browser sampling disabled</button>
+    </header>
+    <p class="notice" id="coverage">Complete marketplace sales ingestion requires a verified bulk transaction feed. Catalog coverage is not sales coverage. All dates are UTC.</p>
+    <p id="message" role="status" aria-live="polite"></p>
+    <form id="filters" class="filters">
+      <label>From<input type="date" name="from" id="from" required></label>
+      <label>Through<input type="date" name="to" id="to" required></label>
+      <label>Products<select name="kind"><option value="all">All products</option><option value="single">Singles</option><option value="sealed">Sealed products</option><option value="other">Other products</option></select></label>
+      <label>Sales source<select name="source" id="source"><option value="">Automatic</option></select></label>
+      <button type="submit" class="secondary">Apply</button>
+      <a id="sales-export" class="download" href="/api/export/sales.csv">All sale records CSV</a>
+      <a id="daily-export" class="download" href="/api/export/daily.csv">Daily CSV</a>
+      <a id="pokemon-export" class="download" href="/api/export/pokemon-daily.csv">Pokemon daily CSV</a>
+    </form>
+    <section class="cards" aria-label="Observed sales summary">
+      <article><p>Observed units sold</p><strong id="units">—</strong></article>
+      <article><p>Observed sales value</p><strong id="revenue">—</strong><small>USD, excluding shipping &amp; tax</small></article>
+      <article><p>Observed sale records</p><strong id="records">—</strong><small>Not unique marketplace orders</small></article>
+    </section>
+    <section class="panel">
+      <h2>Bulk product catalog</h2>
+      <p id="catalog-coverage" class="muted">Run npm run catalog to download Pokemon and Pokemon Japan metadata in bulk.</p>
+      <form id="catalog-search" class="filters">
+        <label>Product or set<input name="q" id="catalog-query" placeholder="Charizard, Base Set, booster..."></label>
+        <label>Category<select name="category" id="catalog-category"><option value="">Both categories</option><option value="3">Pokemon</option><option value="85">Pokemon Japan</option></select></label>
+        <button type="submit" class="secondary">Search catalog</button>
+        <a id="catalog-export" class="download" href="/api/export/catalog.csv">Complete matching catalog CSV</a>
+      </form>
+      <div id="catalog-products"></div>
+      <div class="filters">
+        <button id="catalog-previous" type="button" class="secondary" disabled>Previous</button>
+        <span id="catalog-page" class="muted"></span>
+        <button id="catalog-next" type="button" class="secondary" disabled>Next</button>
+      </div>
+    </section>
+    <section class="panel">
+      <div class="section-heading"><h2>Daily observed volume</h2><label>Measure<select id="measure"><option value="units">Units</option><option value="sales_usd">Sales dollars</option></select></label></div>
+      <div id="chart" aria-live="polite"></div>
+      <p class="muted">Only dates with observed records appear. Blank dates are not confirmed zero-sales days.</p>
+    </section>
+    <div class="columns">
+      <section class="panel"><h2>Most popular Pokemon</h2><p class="muted">Observed singles only. Bulk catalog tags match species names on HP-bearing cards; manual tags override them. Unmapped cards are excluded, and multi-Pokemon cards count toward each tag.</p><div id="pokemon-rank"></div></section>
+      <section class="panel"><h2>Best-selling tracked products</h2><p class="muted">Ranked by observed units; includes sealed products.</p><div id="product-rank"></div></section>
+    </div>
+    <section class="panel">
+      <h2>Diagnostic sample products</h2>
+      <p class="muted">Paste a Pokemon product URL from www.tcgplayer.com. The product name and singles/sealed classification are verified against TCGplayer metadata.</p>
+      <form id="add-product" class="add-form">
+        <label>TCGplayer product URL<input name="url" type="url" placeholder="https://www.tcgplayer.com/product/..." required></label>
+        <label>Pokemon species, if a single<input name="pokemon" placeholder="Charizard, or leave blank for trainers"></label>
+        <button type="submit">Add sample product</button>
+      </form>
+      <div id="tracked"></div>
+    </section>
+    <section class="panel">
+      <h2>Collection health</h2><p id="schedule" class="muted"></p>
+      <div id="health"></div>
+      <details><summary>Import observed sales manually</summary>
+        <p>Import a JSON file containing <code>product_id</code> and a <code>sales</code> array. Add the product above first. See README for the format. Imported data is labeled as unverified coverage.</p>
+        <label>Sales JSON file<input id="import-file" type="file" accept=".json,application/json"></label>
+        <button id="import" type="button" class="secondary">Import sales</button>
+      </details>
+    </section>
+    <footer>No marketplace-wide completeness claim. Website-visible history may be capped, filtered, delayed, or unavailable. Content-based deduplication is approximate when the source supplies no stable sale ID.</footer>
+  </main>
+</body>
+</html>

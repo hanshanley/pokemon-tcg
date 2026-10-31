@@ -1,0 +1,21 @@
+{
+  "name": "pokemon-tcg-sales",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "collect": "node src/collect.js",
+    "seed": "node src/collect.js --seed",
+    "catalog": "node src/catalog.js",
+    "import": "node src/import.js",
+    "test": "node --test",
+    "check": "node --check src/store.js && node --check src/catalog.js && node --check src/import.js && node --check src/collector.js && node --check src/collect.js && node --check src/server.js && node --check public/app.js"
+  },
+  "dependencies": {
+    "playwright": "^1.56.1"
+  }
+}
