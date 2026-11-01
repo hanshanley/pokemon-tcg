@@ -18,7 +18,7 @@ export function checkFreshness(coverage, now = new Date()) {
   for (const field of ['generated_at', 'last_successful_check_at']) {
     const age = now - new Date(coverage[field]);
     if (!Number.isFinite(age) || age < -300000 || age > 26 * 3600000) {
-      throw new Error(`Daily data is stale or invalid: ${field}. Collection requires the Mac to be online.`);
+      throw new Error(`Daily data is stale or invalid: ${field}. Check the remote daily collection workflow.`);
     }
   }
   if (coverage.source !== volumeSource || !(coverage.sku_buckets > 0)) {
