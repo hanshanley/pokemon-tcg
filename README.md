@@ -77,8 +77,10 @@ npm run volume -- --limit 100
 npm run volume -- --watch
 ```
 
-Requires Playwright Chromium and a graphical desktop session in the verified
-visible mode. If the browser binary is missing, install it with
+Local manual collection requires Playwright Chromium and a graphical desktop
+session in the verified visible mode. GitHub Actions supplies a virtual display
+with Xvfb, so remote collection requires no personal desktop session.
+If the browser binary is missing, install it with
 `npx playwright install chromium`. `HEADLESS=1` is optional, but unsigned Node
 requests returned HTTP 403 and headless access is not guaranteed. The collector
 does not solve challenges, log in, copy signed requests, or use a personal browser
