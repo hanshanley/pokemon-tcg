@@ -95,6 +95,45 @@ Watch mode backs off 30 minutes for rate limits and 15 minutes for transient
 failures; denied access exits without attempts to bypass it. Completed sweeps
 repeat at the next 00:15 UTC, refreshing the bulk catalog first.
 
+## Daily GitHub updates
+
+The installed macOS LaunchAgent publishes at **09:00 local Mac time** and at
+login. It commits complete aggregate CSVs and coverage to the
+[`daily-data` branch](https://github.com/hanshanley/pokemon-tcg/tree/daily-data/reports/latest)
+as **Hans Hanley**, without Copilot trailers. It uses an isolated checkout and
+does not stage or change the development worktree.
+
+The [daily-volume release](https://github.com/hanshanley/pokemon-tcg/releases/tag/daily-volume)
+contains **all retained daily SKU buckets** and the entire current product
+catalog as compressed CSVs, alongside the aggregate reports. Downloads are not
+metadata-only or limited to the top 25 products. No local SQLite database,
+individual transaction records, credentials or browser profile is uploaded.
+Release assets are refreshed before the report commit is pushed.
+
+```sh
+# Publish a consistent snapshot immediately (requires authenticated git and gh):
+npm run publish
+# Check an exported coverage file:
+npm run publish -- --check coverage.json
+```
+
+The collector also starts at login and continues its existing daily UTC sweeps.
+Its LaunchAgent retries startup at 20:15 local time if it has exited; denied
+access still stops collection, without challenge solving or tight retry loops.
+The installed definitions are in
+`~/Library/LaunchAgents/com.hanshanley.pokemon-tcg-{volume,publish}.plist`;
+logs are in `data/volume-watch*.log` and `data/github-publish*.log`.
+
+**This Mac must be awake, logged in and online for collection/publication.**
+The GitHub Actions **Daily sales data freshness** workflow checks at 16:45 UTC
+and can be run manually. It fails if either publication or successful source
+checking is over 36 hours old; a newly generated timestamp alone cannot hide
+stale data. A fresh partial sweep remains partial, not certified marketplace
+coverage. The first scheduled publication is November 1, 2026, at 09:00 local
+time; the initial snapshot is published immediately during setup.
+
+## Daily volume storage and reporting
+
 `daily_volume` keeps only product/SKU identifiers, date labels, condition,
 printing, language, quantities, transaction counts and observation timestamps.
 The `(product_id, sku_id, date_source)` key **replaces**, rather than adds,
@@ -354,10 +393,11 @@ invalid imports, stable-ID bulk imports, source isolation, resumable all-categor
 catalog sync, source-count reconciliation, species matching, paginated catalog
 queries, complete CSV exports, gap warnings, daily scheduling across
 the 2026/2027 boundary, browser pagination, and access-failure handling.
-**32 tests** also cover native one-day validation, count corrections, failed/empty
+**34 tests** also cover native one-day validation, count corrections, failed/empty
 history separation, queue resume, source isolation, unavailable revenue, and
 streamed exports beyond dashboard ranking limits, plus existing-database rollup
-migration and subsequent corrections.
+migration and subsequent corrections, complete compressed publishing, and
+stale-publication rejection.
 
 The server binds only to localhost. Keep `data/` private; it contains the SQLite
 database. API and storefront changes may require updating the collector.
