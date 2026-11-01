@@ -130,6 +130,8 @@ npm run publish -- --check coverage.json
 ```
 
 **No Mac, personal computer or self-hosted runner is required.**
+The GitHub reports and release downloads are the remotely updated dataset;
+`npm start` remains a local dashboard over that machine's local database.
 The old local collection/publishing LaunchAgents are disabled after remote
 validation to prevent competing uploads. Transient catalog/browser failures
 back off 15 minutes, rate limits 30 minutes, with at most three attempts per
