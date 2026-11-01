@@ -21,6 +21,7 @@ test('published reports and complete compressed downloads retain corrected count
     variant: 'Holofoil', language: 'English', buckets: Array.from({ length: 30 }, (_, index) => ({
       bucketStartDate: new Date(Date.UTC(2026, 9, 31 - index)).toISOString().slice(0, 10),
       quantitySold: index === 0 ? 8 : 0, transactionCount: index === 0 ? 5 : 0,
+      lowSalePrice: index === 0 ? '10' : null, highSalePrice: index === 0 ? '12' : null,
     })) }] };
   saveMonthHistory(store, 1, payload, now.toISOString());
   payload.result[0].buckets[0].quantitySold = 3;
@@ -29,9 +30,15 @@ test('published reports and complete compressed downloads retain corrected count
   assert.equal(coverage.units, 3);
   assert.equal(coverage.sku_buckets, 30);
   assert.equal(coverage.sales_usd, null);
+  assert.equal(coverage.price_volume.sales_lower_usd,30);
+  assert.equal(coverage.price_volume.sales_upper_usd,36);
+  assert.equal(coverage.price_volume.unpriced_units,0);
+  assert.ok(readFileSync(join(directory,'daily-sales-value.csv'),'utf8')
+    .includes('"3","3","0","30","36","30","36",""'));
   const sku = gunzipSync(readFileSync(join(directory, 'daily-sku-volume.csv.gz'))).toString();
   assert.equal(sku.trimEnd().split('\n').length, 31);
   assert.ok(sku.includes('"tcgplayer-daily","1","Charizard","single"'));
+  assert.ok(sku.includes('"low_sale_price_usd"'));
   assert.equal(gunzipSync(readFileSync(join(directory, 'pokemon-product-catalog.csv.gz')))
     .toString().trimEnd().split('\n').length, 2);
   assert.ok(readFileSync(join(directory, 'pokemon-daily.csv'), 'utf8')

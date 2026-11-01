@@ -156,3 +156,55 @@ test('existing raw daily history migrates into product/day rollups without losin
     assert.equal(migrated.pokemonDailyRows({ from: '2026-10-31', to: '2026-10-31' })[0].units, 8);
   } finally { migrated.close(); }
 });
+
+test('actual sale-price ranges bound dollars, preserve corrections, and never substitute market prices', t => {
+  const store = setup(t), payload = history();
+  const bucket = payload.result[0].buckets[0];
+  Object.assign(bucket, { lowSalePrice: '2.00', highSalePrice: '4.00',
+    lowSalePriceWithShipping: '2.29', highSalePriceWithShipping: '4.99' });
+  saveMonthHistory(store,1,payload);
+  let totals = store.saleValueRows()[0];
+  assert.equal(totals.priced_units,3);
+  assert.equal(totals.sales_lower_usd,6);
+  assert.equal(totals.sales_upper_usd,12);
+  assert.equal(totals.sales_usd,null);
+  assert.equal(store.saleValueRows({},'pokemon').at(-1).priced_sales_upper_usd,12);
+  assert.equal([...store.volumeRows()].at(-1).low_sale_price_with_shipping_usd,2.29);
+  Object.assign(bucket,{ lowSalePrice: '0.29', highSalePrice: '0.29' });
+  saveMonthHistory(store,1,payload);
+  assert.equal(store.saleValueRows()[0].sales_usd,0.87);
+  for (const values of [{lowSalePrice:'bad'}, {lowSalePrice:'1.333'},
+    {lowSalePrice:'5',highSalePrice:'4'}]) {
+    const invalid = structuredClone(payload);
+    Object.assign(invalid.result[0].buckets[0],values);
+    assert.throws(()=>saveMonthHistory(store,1,invalid));
+    assert.equal(store.saleValueRows()[0].sales_usd,0.87);
+  }
+  saveMonthHistory(store,2,history({ sku:102,quantity:5 }));
+  totals = store.saleValueRows()[0];
+  assert.equal(totals.unpriced_units,5);
+  assert.equal(totals.priced_sales_lower_usd,0.87);
+  assert.equal(totals.sales_lower_usd,null);
+  assert.equal(totals.sales_usd,null);
+  delete bucket.lowSalePrice;
+  delete bucket.highSalePrice;
+  saveMonthHistory(store,1,payload);
+  assert.equal(store.saleValueRows()[0].priced_units,0);
+  assert.equal(store.saleValueRows()[0].unpriced_units,8);
+  assert.equal(store.saleValueRows({ from:'2026-09-01',to:'2026-09-01' })[0].sales_usd,null);
+});
+
+test('legacy successful jobs are backfilled for prices once without reopening priced jobs', async t => {
+  const store = setup(t), calls = [];
+  const options = {now:()=>new Date('2026-10-31T12:00:00Z'),pause:async()=>{},log:()=>{},
+    fetchHistory:async id=>{
+      calls.push(id);
+      return {status:200,body:id===2?{count:0}:history({sku:id})};
+    }};
+  await syncVolume(store,options);
+  store.db.prepare('DELETE FROM price_checks WHERE product_id=1').run();
+  await syncVolume(store,options);
+  assert.deepEqual(calls,[1,2,3,1]);
+  await syncVolume(store,options);
+  assert.equal(calls.length,4);
+});

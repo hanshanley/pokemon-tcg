@@ -98,7 +98,7 @@ function drawChart() {
       y: height - bottom - barHeight, width: Math.max(.5, space * .7), height: barHeight, class: 'bar' });
     const title = document.createElementNS(ns, 'title');
     title.textContent = metrics.data_kind === 'daily-buckets'
-      ? `${item.name}: ${number(item.units)} units across ${number(item.products_with_history)} products with published history; revenue unavailable`
+      ? `${item.name}: ${number(item.units)} units across ${number(item.products_with_history)} products with published history; dollar bounds are in the separate sale-price export`
       : `${item.name}: ${number(item.units)} units, ${money(item.sales_usd)}`;
     rect.append(title);
   }
@@ -133,12 +133,24 @@ async function refresh() {
     $('#records-label').textContent = daily ? 'Reported transactions' : 'Observed sale records';
     $('#units').textContent = hasSales ? number(data.total.units) : '—';
     $('#revenue').textContent = hasSales ? money(data.total.sales_usd) : '—';
+    $('#revenue-label').textContent = daily ? 'Priced sales value bounds' : 'Observed sales value';
+    const prices = data.price_volume;
+    $('#price-coverage').textContent = daily && prices
+      ? `${number(prices.priced_units)} of ${number(prices.units)} units priced; ${number(prices.unpriced_units)} unpriced. USD, excluding shipping & tax. ${prices.sales_usd != null ? 'Exact total for reported units.' : prices.unpriced_units > 0 ? 'Priced subset only; full total unknown.' : 'Interval, not an exact total.'}`
+      : 'USD, excluding shipping & tax';
+    if (daily && prices && (prices.priced_units > 0 || prices.sales_usd === 0)) {
+      $('#revenue').textContent = prices.priced_sales_lower_usd === prices.priced_sales_upper_usd
+        ? money(prices.priced_sales_lower_usd)
+        : `${money(prices.priced_sales_lower_usd)} – ${money(prices.priced_sales_upper_usd)}`;
+    }
     $('#records').textContent = hasSales ? number(data.total.sale_records) : '—';
     query.set('source', data.sales_source);
     $('#sales-export').href = `/api/export/${daily ? 'volume' : 'sales'}.csv?${query}`;
     $('#sales-export').textContent = daily ? 'All daily SKU buckets CSV' : 'All sale records CSV';
     $('#daily-export').href = `/api/export/daily.csv?${query}`;
     $('#pokemon-export').href = `/api/export/pokemon-daily.csv?${query}`;
+    $('#value-export').hidden = !daily;
+    $('#value-export').href = `/api/export/sales-value.csv?${query}`;
     $('#collect').disabled = !status.browser_sampling_enabled || status.running || !data.tracked_products.length;
     $('#collect').textContent = !status.browser_sampling_enabled ? 'Browser sampling disabled'
       : status.running ? 'Sampling…' : 'Collect diagnostic samples';

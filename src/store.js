@@ -126,6 +126,24 @@ export class Store {
         PRIMARY KEY(product_id,sku_id,date_source)
       );
       CREATE INDEX IF NOT EXISTS daily_volume_date ON daily_volume(date_source);
+      CREATE TABLE IF NOT EXISTS daily_sale_prices (
+        product_id INTEGER NOT NULL, sku_id INTEGER NOT NULL, date_source TEXT NOT NULL,
+        low_cents INTEGER, high_cents INTEGER, low_with_shipping_cents INTEGER,
+        high_with_shipping_cents INTEGER, observed_at TEXT NOT NULL,
+        PRIMARY KEY(product_id,sku_id,date_source),
+        FOREIGN KEY(product_id,sku_id,date_source)
+          REFERENCES daily_volume(product_id,sku_id,date_source)
+      );
+      CREATE TABLE IF NOT EXISTS price_checks (
+        product_id INTEGER PRIMARY KEY REFERENCES catalog_products(product_id),
+        checked_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS price_product_days (
+        product_id INTEGER NOT NULL REFERENCES catalog_products(product_id),
+        date_source TEXT NOT NULL, kind TEXT NOT NULL,
+        priced_units INTEGER NOT NULL, lower_cents INTEGER NOT NULL, upper_cents INTEGER NOT NULL,
+        PRIMARY KEY(product_id,date_source,kind)
+      );
       CREATE TABLE IF NOT EXISTS volume_runs (
         date_utc TEXT PRIMARY KEY, started_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         finished_at TEXT, status TEXT NOT NULL, products_expected INTEGER NOT NULL DEFAULT 0,
@@ -212,6 +230,56 @@ export class Store {
   }
 
   close() { this.db.close(); }
+
+  refreshSaleValues(productId) {
+    const where = productId == null ? '' : 'WHERE s.product_id=?';
+    const params = productId == null ? [] : [productId];
+    this.db.prepare(`DELETE FROM price_product_days ${productId == null ? '' : 'WHERE product_id=?'}`)
+      .run(...params);
+    this.db.prepare(`INSERT INTO price_product_days
+      SELECT s.product_id,s.date_source,s.kind,
+        sum(CASE WHEN p.low_cents IS NOT NULL AND p.high_cents IS NOT NULL THEN s.quantity ELSE 0 END),
+        sum(CASE WHEN p.low_cents IS NOT NULL AND p.high_cents IS NOT NULL THEN s.quantity*p.low_cents ELSE 0 END),
+        sum(CASE WHEN p.low_cents IS NOT NULL AND p.high_cents IS NOT NULL THEN s.quantity*p.high_cents ELSE 0 END)
+      FROM daily_volume s LEFT JOIN daily_sale_prices p
+        ON p.product_id=s.product_id AND p.sku_id=s.sku_id AND p.date_source=s.date_source
+      ${where} GROUP BY s.product_id,s.date_source,s.kind`).run(...params);
+  }
+
+  saleValueRows(filters, group = 'total') {
+    if (this.salesSource(filters?.source) !== volumeSource) {
+      throw new Error('Daily sale-price bounds require the tcgplayer-daily source.');
+    }
+    const { where, params } = this.salesFilter(filters);
+    const groups = {
+      total: ['', '', ''],
+      daily: ['s.date_source AS date_source,', 'GROUP BY s.date_source', 'ORDER BY s.date_source'],
+      pokemon: ['s.date_source,lower(j.value) AS pokemon_key,min(j.value) AS pokemon,',
+        'GROUP BY s.date_source,lower(j.value)', 'ORDER BY s.date_source,priced_sales_upper_usd DESC,pokemon_key'],
+      product: ['s.product_id,min(s.product_name) AS name,', 'GROUP BY s.product_id',
+        'ORDER BY priced_sales_upper_usd DESC,s.product_id'],
+    };
+    if (!Object.hasOwn(groups, group)) throw new Error('Invalid sale-value grouping.');
+    const [select, grouping, order] = groups[group];
+    return this.db.prepare(`SELECT ${select}
+      coalesce(sum(s.quantity),0) AS units,
+      coalesce(sum(p.priced_units),0) AS priced_units,
+      coalesce(sum(s.quantity-coalesce(p.priced_units,0)),0) AS unpriced_units,
+      sum(coalesce(p.lower_cents,0))/100.0 AS priced_sales_lower_usd,
+      sum(coalesce(p.upper_cents,0))/100.0 AS priced_sales_upper_usd,
+      CASE WHEN sum(s.quantity)=sum(coalesce(p.priced_units,0))
+        THEN sum(coalesce(p.lower_cents,0))/100.0 END AS sales_lower_usd,
+      CASE WHEN sum(s.quantity)=sum(coalesce(p.priced_units,0))
+        THEN sum(coalesce(p.upper_cents,0))/100.0 END AS sales_upper_usd,
+      CASE WHEN sum(s.quantity)=sum(coalesce(p.priced_units,0))
+        AND sum(coalesce(p.lower_cents,0))=sum(coalesce(p.upper_cents,0))
+        THEN sum(coalesce(p.lower_cents,0))/100.0 END AS sales_usd
+      FROM reported_product_volume s LEFT JOIN price_product_days p
+        ON p.product_id=s.product_id AND p.date_source=s.date_source AND p.kind=s.kind
+      ${group === 'pokemon' ? ',json_each(s.pokemon) j' : ''}
+      ${where} ${group === 'pokemon' ? "AND s.kind='single'" : ''}
+      ${grouping} ${order}`).all(...params);
+  }
 
   products() {
     return this.db.prepare(`
@@ -388,7 +456,7 @@ export class Store {
       ({ ...row, sales_usd: sales_cents == null ? null : sales_cents / 100 }));
     return {
       coverage: daily
-        ? 'TCGplayer-reported daily SKU quantities, not individual transactions. Marketplace completeness and source-date timezone are unverified; missing products/dates are not zero sales. Revenue is unavailable.'
+        ? 'TCGplayer-reported daily SKU history, not individual transactions. Dollar-volume bounds use actual low/high unit sale prices, excluding shipping; priced subtotals exclude unpriced units. Exact revenue requires complete price coverage and equal bounds. Market prices are not revenue. Marketplace completeness and source-date timezone are unverified; missing products/dates are not zero sales.'
         : source === 'snapshot'
         ? 'Observed samples only; complete marketplace sales ingestion is blocked by data access.'
         : 'Imported bulk transactions; marketplace-wide completeness remains unverified.',
@@ -400,6 +468,7 @@ export class Store {
       ...(this.db.prepare('SELECT 1 FROM daily_volume LIMIT 1').get() ? [volumeSource] : [])],
       timezone: daily ? 'Source bucket dates; timezone not published' : 'UTC',
       total: format(query(`SELECT ${sum} FROM ${relation} s ${rankingWhere}`))[0],
+      ...(daily ? { price_volume: this.saleValueRows(filters)[0] } : {}),
       daily: this.dailyRows(filters),
       products: format(query(`SELECT s.product_id, min(s.product_name) AS name, ${sum}
         FROM ${relation} s ${rankingWhere} GROUP BY s.product_id ORDER BY units DESC, name ${limit}`)),
@@ -445,7 +514,13 @@ export class Store {
       throw new Error('Daily SKU export requires the tcgplayer-daily source.');
     }
     const { where, params } = this.salesFilter({ ...filters, source: volumeSource });
-    return this.db.prepare(`SELECT s.* FROM reported_volume s ${where}
+    return this.db.prepare(`SELECT s.*,p.low_cents/100.0 AS low_sale_price_usd,
+      p.high_cents/100.0 AS high_sale_price_usd,
+      p.low_with_shipping_cents/100.0 AS low_sale_price_with_shipping_usd,
+      p.high_with_shipping_cents/100.0 AS high_sale_price_with_shipping_usd,
+      p.observed_at AS prices_observed_at
+      FROM reported_volume s LEFT JOIN daily_sale_prices p
+        ON p.product_id=s.product_id AND p.sku_id=s.sku_id AND p.date_source=s.date_source ${where}
       ORDER BY s.date_source,s.product_id,s.sku_id`).iterate(...params);
   }
 

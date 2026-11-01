@@ -25,10 +25,11 @@
       <a id="sales-export" class="download" href="/api/export/sales.csv">All sale records CSV</a>
       <a id="daily-export" class="download" href="/api/export/daily.csv">Daily CSV</a>
       <a id="pokemon-export" class="download" href="/api/export/pokemon-daily.csv">Pokemon daily CSV</a>
+      <a id="value-export" class="download" href="/api/export/sales-value.csv" hidden>Daily sale-price bounds CSV</a>
     </form>
     <section class="cards" aria-label="Observed sales summary">
       <article><p id="units-label">Observed units sold</p><strong id="units">—</strong></article>
-      <article><p>Observed sales value</p><strong id="revenue">—</strong><small>USD, excluding shipping &amp; tax</small></article>
+      <article><p id="revenue-label">Observed sales value</p><strong id="revenue">—</strong><small id="price-coverage">USD, excluding shipping &amp; tax</small></article>
       <article><p id="records-label">Observed sale records</p><strong id="records">—</strong><small>Not unique marketplace orders</small></article>
     </section>
     <section class="panel">
@@ -75,7 +76,7 @@
         <button id="import" type="button" class="secondary">Import sales</button>
       </details>
     </section>
-    <footer>No marketplace-wide completeness claim. Daily SKU buckets provide reported quantities, not individual transactions or revenue; source coverage may be filtered, delayed, or unavailable. Content-based deduplication applies only to legacy browser samples.</footer>
+    <footer>No marketplace-wide completeness claim. Daily SKU price ranges bound dollar volume for priced units, not a complete individual-sale archive; missing prices remain unknown. Content-based deduplication applies only to legacy browser samples.</footer>
   </main>
 </body>
 </html>

@@ -21,6 +21,7 @@ test('remote checkpoints preserve all public buckets and queue state but exclude
     variant: 'Normal', language: 'English', buckets: Array.from({ length: 30 }, (_, n) => ({
       bucketStartDate: new Date(Date.UTC(2026, 9, 31 - n)).toISOString().slice(0, 10),
       quantitySold: n === 0 ? 3 : 0, transactionCount: n === 0 ? 2 : 0,
+      lowSalePrice: n === 0 ? '2' : null, highSalePrice: n === 0 ? '3' : null,
     })) }] };
   saveMonthHistory(store, 1, payload);
   store.db.exec(`INSERT INTO volume_runs(date_utc,started_at,updated_at,status,warning)
@@ -31,6 +32,12 @@ test('remote checkpoints preserve all public buckets and queue state but exclude
     assert.equal(publicCheckpoint(source, destination).sku_buckets, 30);
     assert.throws(() => publicCheckpoint(source, source), /must not overwrite/);
     assert.throws(() => publicCheckpoint(source, destination), /must be a new file/);
+    store.db.exec('DROP TABLE daily_sale_prices; DROP TABLE price_checks; DROP TABLE price_product_days');
+    const legacyPath = join(directory,'legacy-public.sqlite');
+    assert.equal(publicCheckpoint(source,legacyPath).sku_buckets,30);
+    const legacy = new Store(legacyPath);
+    try { assert.equal(legacy.saleValueRows()[0].unpriced_units,3); }
+    finally { legacy.close(); }
   }
   finally { store.close(); }
   const remote = new Store(destination);
@@ -44,6 +51,9 @@ test('remote checkpoints preserve all public buckets and queue state but exclude
     assert.equal(remote.db.prepare('SELECT warning FROM volume_runs').get().warning, '');
     assert.equal(remote.db.prepare('SELECT status FROM volume_jobs').get().status, 'success');
     assert.equal([...remote.volumeRows()].length, 30);
+    assert.equal(remote.saleValueRows()[0].sales_lower_usd,6);
+    assert.equal(remote.saleValueRows()[0].sales_upper_usd,9);
+    assert.equal(remote.db.prepare('SELECT count(*) AS n FROM price_checks').get().n,1);
   } finally { remote.close(); }
 });
 

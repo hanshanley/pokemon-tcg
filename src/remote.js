@@ -31,10 +31,13 @@ export function publicCheckpoint(source, destination) {
         products_failed,'' FROM original.volume_runs;
       INSERT INTO volume_jobs SELECT date_utc,product_id,status,attempts,fetched_at,buckets,''
         FROM original.volume_jobs;
-      COMMIT;
-      DETACH DATABASE original;
-      PRAGMA wal_checkpoint(TRUNCATE);
     `);
+    for (const table of ['daily_sale_prices', 'price_checks']) {
+      if (target.db.prepare('SELECT 1 FROM original.sqlite_master WHERE type=? AND name=?')
+        .get('table',table)) target.db.exec(`INSERT INTO ${table} SELECT * FROM original.${table}`);
+    }
+    target.refreshSaleValues();
+    target.db.exec('COMMIT; DETACH DATABASE original; PRAGMA wal_checkpoint(TRUNCATE)');
     return target.db.prepare('SELECT count(*) AS sku_buckets FROM daily_volume').get();
   } finally { target.close(); }
 }

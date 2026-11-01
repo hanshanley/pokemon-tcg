@@ -146,6 +146,7 @@ test('daily SKU exports stream all matching buckets and clearly distinguish date
       buckets: Array.from({ length: 30 }, (_, index) => ({
         bucketStartDate: new Date(Date.UTC(2026, 9, 31 - index)).toISOString().slice(0, 10),
         quantitySold: 3, transactionCount: 2,
+        lowSalePrice: '1.00', highSalePrice: '2.00',
       })),
     }] });
   }
@@ -154,10 +155,13 @@ test('daily SKU exports stream all matching buckets and clearly distinguish date
   assert.equal(metrics.total.units, 3240);
   assert.equal(metrics.total.sale_records, 2160);
   assert.equal(metrics.total.sales_usd, null);
+  assert.equal(metrics.price_volume.sales_lower_usd,3240);
+  assert.equal(metrics.price_volume.sales_upper_usd,6480);
   assert.equal((await fetch(`${base}/api/export/sales.csv?source=tcgplayer-daily`)).status, 400);
   const output = await (await fetch(`${base}/api/export/volume.csv?source=tcgplayer-daily`)).text();
   assert.equal(output.trim().split('\r\n').length, 1081);
   assert.match(output, /"date_source","quantity","transaction_count"/);
+  assert.match(output, /"low_sale_price_usd","high_sale_price_usd"/);
   assert.doesNotMatch(output, /unit_price|sales_usd|date_utc/);
   const daily = await (await fetch(`${base}/api/export/daily.csv?from=2026-10-31&to=2026-10-31`)).text();
   assert.match(daily, /"2026-10-31","72","108","","tcgplayer-daily"/);
@@ -166,4 +170,10 @@ test('daily SKU exports stream all matching buckets and clearly distinguish date
   assert.equal(species.trim().split('\r\n').length, 1081);
   assert.match(species, /"date_source"/);
   assert.equal((await fetch(`${base}/api/export/volume.csv?source=snapshot`)).status, 400);
+  const value = await (await fetch(`${base}/api/export/sales-value.csv?from=2026-10-31&to=2026-10-31`)).text();
+  assert.match(value, /"2026-10-31","108","108","0","108","216","108","216",""/);
+  const pokemonValue = await (await fetch(`${base}/api/export/sales-value.csv?group=pokemon`)).text();
+  assert.equal(pokemonValue.trim().split('\r\n').length,1081);
+  assert.equal((await fetch(`${base}/api/export/sales-value.csv?group=invalid`)).status,400);
+  assert.equal((await fetch(`${base}/api/export/sales-value.csv?source=snapshot`)).status,400);
 });

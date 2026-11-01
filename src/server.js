@@ -36,7 +36,7 @@ async function streamCsv(response, rows, fields) {
     if (response.destroyed) return;
     batch.push({ ...row, pokemon: JSON.parse(row.pokemon).join(' / '),
       timezone: 'Source bucket dates; timezone not published',
-      coverage: 'reported daily history; marketplace completeness unverified; revenue unavailable' });
+      coverage: 'reported daily history; marketplace completeness unverified; actual price ranges retained, not individual-sale totals' });
     if (batch.length === 1000) await flush();
   }
   if (batch.length) await flush();
@@ -148,7 +148,19 @@ export function makeServer(store, {
         response.setHeader('Content-Disposition', 'attachment; filename="daily-sku-volume.csv"');
         return await streamCsv(response, rows, ['source', 'product_id', 'product_name', 'kind',
           'pokemon', 'sku_id', 'date_source', 'quantity', 'transaction_count', 'condition',
-          'variant', 'language', 'first_seen', 'last_seen', 'timezone', 'coverage']);
+          'variant', 'language', 'first_seen', 'last_seen', 'timezone', 'coverage',
+          'low_sale_price_usd','high_sale_price_usd','low_sale_price_with_shipping_usd',
+          'high_sale_price_with_shipping_usd','prices_observed_at']);
+      }
+      if (url.pathname === '/api/export/sales-value.csv') {
+        const group = url.searchParams.get('group') ?? 'daily';
+        const identities = { daily: ['date_source'], pokemon: ['date_source','pokemon_key','pokemon'],
+          product: ['product_id','name'] };
+        if (!Object.hasOwn(identities,group)) throw new Error('Invalid sale-value grouping.');
+        response.setHeader('Content-Disposition', `attachment; filename="${group}-sales-value.csv"`);
+        return send(200,csv(store.saleValueRows(filters,group),[...identities[group],
+          'units','priced_units','unpriced_units','priced_sales_lower_usd','priced_sales_upper_usd',
+          'sales_lower_usd','sales_upper_usd','sales_usd']), 'text/csv; charset=utf-8');
       }
       if (url.pathname === '/api/export/daily.csv') {
         const daily = store.salesSource(filters.source) === volumeSource;

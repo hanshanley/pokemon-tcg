@@ -116,6 +116,10 @@ catalog as compressed CSVs, alongside the aggregate reports. Downloads are not
 metadata-only or limited to the top 25 products. No local SQLite database,
 individual transaction records, credentials or browser profile is uploaded.
 Release assets are refreshed before the report commit is pushed.
+`daily-sales-value.csv`, `pokemon-sales-value.csv` and `product-sales-value.csv`
+report actual sale-price bounds, priced/unpriced units, and exact dollars only
+where the published bounds establish them. These files are also committed on
+`main`; multi-Pokemon species totals remain nonadditive.
 
 `remote-state.sqlite.gz` is a separately constructed **public-only checkpoint**,
 containing catalog/species metadata, native daily buckets and resumable queue
@@ -160,11 +164,35 @@ as raw bucket updates. Existing databases backfill these once on startup.
 Dashboard and species queries use the rollups; complete SKU exports still read
 the original buckets, including explicit zero days.
 
+`daily_sale_prices` preserves the source's daily low/high unit sale prices and
+its separate shipping-inclusive price fields, using integer cents. Price and
+quantity corrections are atomic. `price_product_days` maintains matching
+product/date/kind price-value rollups. Older checkpoints without prices load
+as **unpriced**, not zero dollars. Successful legacy queue entries are
+automatically rechecked once for prices; old dates outside the source's rolling
+window can remain unpriced.
+
 Only explicit daily bucket counts are summed. On live responses, the top-level
 SKU total counters sometimes differed from the bucket sums; they are not used
 to invent missing daily sales. Market price is **not** average purchase price
-or revenue. Native history reports sales dollars as unavailable (`null` in JSON,
-blank in CSV, a dash on screen); it never fabricates zero-dollar revenue.
+or revenue. For a SKU/day with quantity Q and actual low/high unit prices L/H,
+item-dollar volume is bounded by Q*L and Q*H. These are **bounds, not an average
+or a list of individual sales**. Exact value is determined only when the bounds
+coincide. Aggregate `sales_lower_usd`/`sales_upper_usd` require price coverage of
+every reported unit; `sales_usd` additionally requires equal bounds.
+`priced_sales_lower_usd`/`priced_sales_upper_usd` are subtotals for priced units
+only, accompanied by `priced_units` and `unpriced_units`. Shipping and tax are
+excluded from these item-dollar calculations. Unknown exact revenue remains
+`null`/blank, and market price is never multiplied by quantity.
+
+The dashboard shows the **priced subset's** dollar bounds and price coverage;
+its unit chart remains separate. Complete SKU CSVs include all four reported
+sale-price fields and `prices_observed_at`. Native unit-only reports retain
+blank `sales_usd` columns; use the separate sales-value exports or API
+`price_volume` for monetary bounds and derivable exact values.
+The current storefront sends signed recent-sale requests; unsigned public POST
+access has not been verified.
+A complete individual-sale archive is still not connected.
 
 The native source is `tcgplayer-daily`, reserved from transaction imports.
 **All daily SKU buckets CSV** streams every matching bucket, not the ranking
@@ -407,7 +435,7 @@ invalid imports, stable-ID bulk imports, source isolation, resumable all-categor
 catalog sync, source-count reconciliation, species matching, paginated catalog
 queries, complete CSV exports, gap warnings, daily scheduling across
 the 2026/2027 boundary, browser pagination, and access-failure handling.
-**37 tests** also cover native one-day validation, count corrections, failed/empty
+**39 tests** also cover native one-day validation, count corrections, failed/empty
 history separation, queue resume, source isolation, unavailable revenue, and
 streamed exports beyond dashboard ranking limits, plus existing-database rollup
 migration and subsequent corrections, complete compressed publishing, and

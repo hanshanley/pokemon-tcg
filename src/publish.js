@@ -11,7 +11,8 @@ import { Store, csv, volumeSource } from './store.js';
 const repo = 'hanshanley/pokemon-tcg';
 const branch = 'main';
 const tag = 'daily-volume';
-const reportFiles = ['coverage.json', 'daily-volume.csv', 'pokemon-daily.csv', 'product-volume.csv'];
+const reportFiles = ['coverage.json', 'daily-volume.csv', 'pokemon-daily.csv', 'product-volume.csv',
+  'daily-sales-value.csv', 'pokemon-sales-value.csv', 'product-sales-value.csv'];
 const assetFiles = ['daily-sku-volume.csv.gz', 'pokemon-product-catalog.csv.gz', ...reportFiles];
 
 export function checkFreshness(coverage, now = new Date()) {
@@ -52,20 +53,29 @@ export async function exportSnapshot(store, directory, now = new Date()) {
     const run = store.db.prepare('SELECT * FROM volume_runs ORDER BY date_utc DESC LIMIT 1').get();
     const lastCheck = store.db.prepare(`SELECT max(fetched_at) AS date FROM volume_jobs
       WHERE status IN ('success','empty')`).get().date ?? totals.last_observed_at;
+    const priceVolume = store.saleValueRows({ source: volumeSource })[0];
     const coverage = {
       source: volumeSource, generated_at: now.toISOString(), ...totals,
-      last_successful_check_at: lastCheck, sales_usd: null,
+      last_successful_check_at: lastCheck, sales_usd: priceVolume.sales_usd,
       catalog_products: store.db.prepare('SELECT count(*) AS n FROM catalog_products WHERE is_current=1').get().n,
       sweep: run ? Object.fromEntries(['date_utc', 'status', 'updated_at', 'products_expected',
         'products_checked', 'products_with_history', 'products_without_history', 'products_failed']
         .map(key => [key, run[key]])) : null,
       marketplace_completeness: 'unverified',
       source_timezone: 'not published',
-      notes: 'Reported daily SKU buckets, not individual sales. Missing history is unknown, not zero. Multi-Pokemon rankings are nonadditive.',
+      price_volume: priceVolume,
+      notes: 'Reported daily SKU buckets, not individual sales. Dollar bounds use actual daily low/high unit sale prices, excluding shipping. Priced subtotals exclude unpriced units; exact total is unavailable unless all units have equal lower/upper bounds. Market prices are not revenue. Missing history is unknown, not zero. Multi-Pokemon rankings are nonadditive.',
       downloads: assetFiles,
     };
     checkFreshness(coverage, now);
     const filters = { source: volumeSource };
+    const valueFields = ['units','priced_units','unpriced_units','priced_sales_lower_usd',
+      'priced_sales_upper_usd','sales_lower_usd','sales_upper_usd','sales_usd'];
+    for (const [group, fields] of [['daily',['date_source']],
+      ['pokemon',['date_source','pokemon_key','pokemon']], ['product',['product_id','name']]]) {
+      writeFileSync(join(directory, `${group}-sales-value.csv`),
+        csv(store.saleValueRows(filters,group), [...fields,...valueFields]));
+    }
     writeFileSync(join(directory, 'daily-volume.csv'), csv(store.dailyRows(filters).map(row => ({
       ...row, date_source: row.name,
     })), ['date_source', 'sale_records', 'units', 'sales_usd', 'products_with_history', 'sku_buckets']));
@@ -78,7 +88,9 @@ export async function exportSnapshot(store, directory, now = new Date()) {
       ['product_id', 'name', 'units', 'sale_records']));
     await pipeline(Readable.from(csvChunks(store.volumeRows(filters),
       ['source', 'product_id', 'product_name', 'kind', 'pokemon', 'sku_id', 'date_source',
-        'quantity', 'transaction_count', 'condition', 'variant', 'language', 'first_seen', 'last_seen'])),
+        'quantity', 'transaction_count', 'condition', 'variant', 'language', 'first_seen', 'last_seen',
+        'low_sale_price_usd','high_sale_price_usd','low_sale_price_with_shipping_usd',
+        'high_sale_price_with_shipping_usd','prices_observed_at'])),
     createGzip(), createWriteStream(join(directory, 'daily-sku-volume.csv.gz')));
     const catalog = store.catalogRows({}, true).products.map(row =>
       ({ ...row, pokemon: row.pokemon.join(' / ') }));

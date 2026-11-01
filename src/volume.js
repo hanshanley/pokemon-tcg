@@ -18,6 +18,16 @@ function integer(value, name) {
   return Number(value);
 }
 
+function salePrice(value) {
+  if (value == null || value === '') return null;
+  if (!['number', 'string'].includes(typeof value) ||
+      !/^\d+(?:\.\d{1,2})?$/.test(String(value)) ||
+      !Number.isSafeInteger(Math.round(Number(value) * 100))) {
+    throw new Error('Invalid actual sale price; no dollar volume inferred.');
+  }
+  return Math.round(Number(value) * 100);
+}
+
 export function monthHistory(payload) {
   if (!payload || payload.error || !Number.isSafeInteger(payload.count) || payload.count < 0) {
     throw new Error('Unexpected daily-history response.');
@@ -49,6 +59,8 @@ export function monthHistory(payload) {
         throw new Error('Invalid source bucket date.');
       }
       dates.push(date);
+      const low = salePrice(bucket.lowSalePrice), high = salePrice(bucket.highSalePrice);
+      if (low != null && high != null && low > high) throw new Error('Inverted sale-price bounds.');
       rows.push({
         sku_id: id, date_source: date,
         kind: sku.condition === 'Unopened' ? 'sealed'
@@ -56,6 +68,9 @@ export function monthHistory(payload) {
         condition: sku.condition, variant: sku.variant, language: sku.language,
         quantity: integer(bucket.quantitySold, 'quantity'),
         transaction_count: integer(bucket.transactionCount, 'transaction count'),
+        low_cents: low, high_cents: high,
+        low_with_shipping_cents: salePrice(bucket.lowSalePriceWithShipping),
+        high_with_shipping_cents: salePrice(bucket.highSalePriceWithShipping),
       });
     }
     dates.sort();
@@ -81,7 +96,20 @@ export function saveMonthHistory(store, productId, payload, now = new Date().toI
       transaction_count=excluded.transaction_count,last_seen=excluded.last_seen`);
   store.db.exec('BEGIN IMMEDIATE');
   try {
-    for (const row of rows) insert.run(productId, ...Object.values(row), now, now);
+    const prices = store.db.prepare(`INSERT INTO daily_sale_prices VALUES (?,?,?,?,?,?,?,?)
+      ON CONFLICT(product_id,sku_id,date_source) DO UPDATE SET
+        low_cents=excluded.low_cents,high_cents=excluded.high_cents,
+        low_with_shipping_cents=excluded.low_with_shipping_cents,
+        high_with_shipping_cents=excluded.high_with_shipping_cents,observed_at=excluded.observed_at`);
+    for (const row of rows) {
+      insert.run(productId, row.sku_id, row.date_source, row.kind, row.condition,
+        row.variant, row.language, row.quantity, row.transaction_count, now, now);
+      prices.run(productId,row.sku_id,row.date_source,row.low_cents,row.high_cents,
+        row.low_with_shipping_cents,row.high_with_shipping_cents,now);
+    }
+    store.db.prepare(`INSERT INTO price_checks VALUES (?,?)
+      ON CONFLICT(product_id) DO UPDATE SET checked_at=excluded.checked_at`).run(productId,now);
+    store.refreshSaleValues(productId);
     store.db.prepare('DELETE FROM volume_product_days WHERE product_id=?').run(productId);
     store.db.prepare(`INSERT INTO volume_product_days
       SELECT product_id,date_source,kind,sum(quantity),sum(transaction_count),count(*)
@@ -106,6 +134,10 @@ export async function syncVolume(store, {
     (date_utc,started_at,updated_at,status) VALUES (?,?,?,'paused')`).run(date, started, started);
   store.db.prepare(`INSERT OR IGNORE INTO volume_jobs (date_utc,product_id)
     SELECT ?,product_id FROM catalog_products WHERE is_current=1`).run(date);
+  store.db.prepare(`UPDATE volume_jobs SET status='pending',attempts=0,warning=''
+    WHERE date_utc=? AND status='success' AND NOT EXISTS
+      (SELECT 1 FROM price_checks p WHERE p.product_id=volume_jobs.product_id
+        AND p.checked_at>=?)`).run(date, `${date}T00:00:00.000Z`);
   const progress = (status, warning = '') => {
     store.db.prepare(`UPDATE volume_runs SET status=?,updated_at=?,warning=?,
       finished_at=CASE WHEN ? IN ('complete','partial') THEN ? ELSE NULL END,
