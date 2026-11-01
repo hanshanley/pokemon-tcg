@@ -21,14 +21,14 @@ jobs:
   first:
     uses: ./.github/workflows/remote-volume-pass.yml
     with:
-      max_products: ${{ inputs.max_products || 25000 }}
+      max_products: ${{ format('{0}', inputs.max_products || 25000) }}
   second:
     needs: first
     uses: ./.github/workflows/remote-volume-pass.yml
     with:
-      max_products: ${{ inputs.max_products || 25000 }}
+      max_products: ${{ format('{0}', inputs.max_products || 25000) }}
   third:
     needs: second
     uses: ./.github/workflows/remote-volume-pass.yml
     with:
-      max_products: ${{ inputs.max_products || 25000 }}
+      max_products: ${{ format('{0}', inputs.max_products || 25000) }}
