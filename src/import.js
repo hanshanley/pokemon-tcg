@@ -3,11 +3,11 @@ import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Store, normalizeSale } from './store.js';
+import { Store, normalizeSale, volumeSource } from './store.js';
 
 export async function importTransactions(store, path, source) {
   if (typeof source !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,99}$/.test(source) ||
-      source === 'snapshot') throw new Error('Provide a source name, not "snapshot".');
+      ['snapshot', volumeSource].includes(source)) throw new Error('Provide a non-reserved source name.');
   const input = createReadStream(path);
   const lines = createInterface({ input, crlfDelay: Infinity });
   const insert = store.db.prepare(`INSERT INTO bulk_sales

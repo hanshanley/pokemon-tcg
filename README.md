@@ -3,18 +3,22 @@
 **The goal is all Pokemon products, not a watchlist.** This application now
 downloads the published Pokemon and Pokemon Japan catalogs in set-level batches,
 stores them in SQLite, supports streaming bulk transaction imports, and computes
-daily volume and Pokemon rankings in SQL. No product pages are opened during
-catalog sync, transaction import, or reporting.
+daily volume and Pokemon rankings in SQL. Native monthly history now supplies
+reported daily quantities and transaction counts per SKU. A resumable job covers
+the entire catalog through direct API calls in **one storefront browser context**,
+not page visits per product. Catalog sync, transaction import and reporting do
+not open storefront pages.
 
-**Complete marketplace sales ingestion is still blocked by data access.**
+**Daily quantity ingestion works; complete individual-transaction ingestion
+and marketplace-wide coverage certification remain unresolved.**
 The bulk catalog contains metadata, not completed sales. Its product count
 must not be mistaken for transaction coverage. The existing 15 real browser
 sample records are retained separately; they do not establish daily market totals.
-Automatic browser collection is disabled.
+Legacy page-based sampling is disabled. The native daily-volume job is separate.
 
 ## Architecture and remaining data requirement
 
-`bulk catalog -> product/species dimensions -> bulk transaction feed -> SQLite GROUP BY -> dashboard/CSV`
+`bulk catalog -> product/species dimensions -> daily SKU API / transaction feed -> SQLite GROUP BY -> dashboard/CSV`
 
 - Catalog: TCGCSV's daily cached TCGplayer API export, categories **3 and 85**.
   Includes singles, sealed products, code cards and other published products;
@@ -26,7 +30,13 @@ Automatic browser collection is disabled.
   types, avoiding sealed packaging and fossil/trainer name matches. English names, forms and named multi-Pokemon
   cards are handled; missing/localized names and unnamed fusion components still
   need review. Name-based tags are not certified species attribution.
-- Sales: a complete feed must provide product ID, a stable per-transaction ID,
+- Daily volume: the native `price/history/{product_id}/detailed?range=month`
+  endpoint supplies 30 consecutive one-day buckets per returned SKU, including
+  quantity and transaction count. Conditions identify singles versus unopened
+  products. Empty histories and errors are recorded separately, not fabricated
+  as zeroes. Source date labels are retained; their timezone is not published.
+  The first full-catalog sweep takes hours and is not an atomic daily snapshot.
+- Transactions: a complete feed must provide product ID, a stable per-transaction ID,
   timezone-aware sale timestamp, units, unit price, and product type, with explicit
   coverage of conditions, languages, variants, history and delayed records.
   A source adapter/data agreement is needed before claiming marketplace totals.
@@ -34,7 +44,8 @@ Automatic browser collection is disabled.
 - TCGplayer public search and TCGCSV prices are not transaction counts. The
   provider TCGAPIs documents its "full" archive as overlapping three-day buckets,
   not exact daily transaction data. SQL cannot recover missing transactions or
-  uniquely reconstruct daily totals from those buckets.
+  uniquely reconstruct daily totals from those coarser buckets. This application
+  specifically requests the native **month**, not quarter, range for daily volume.
 
 ## Run
 
@@ -44,12 +55,71 @@ Requires Node.js 22.13+.
 npm install
 npm run catalog
 npm start
+# In another terminal, collect all products and repeat daily:
+npm run volume -- --watch
 ```
 
 Open `http://127.0.0.1:3000`. **Bulk product catalog** searches the local database
 and displays 100 products per page. Its CSV includes every matching product,
 not just that page. The dashboard separately reports catalog products,
-products with saved sales, species-mapping gaps and the unconnected complete feed.
+products with saved sales, species-mapping gaps and daily-volume collection progress.
+Native daily history is the automatic source once buckets exist; imported
+transaction sources and legacy samples can still be explicitly selected.
+
+## Native daily SKU volume
+
+```sh
+# One resumable full-catalog sweep:
+npm run volume
+# Small live batch, retaining checkpoints for the full sweep:
+npm run volume -- --limit 100
+# Daily catalog refresh and full sweeps:
+npm run volume -- --watch
+```
+
+Requires Playwright Chromium and a graphical desktop session in the verified
+visible mode. If the browser binary is missing, install it with
+`npx playwright install chromium`. `HEADLESS=1` is optional, but unsigned Node
+requests returned HTTP 403 and headless access is not guaranteed. The collector
+does not solve challenges, log in, copy signed requests, or use a personal browser
+profile. One ordinary homepage navigation establishes the public browser origin;
+every product is then fetched using a plain API request.
+
+SQLite queues **all current catalog IDs**, including singles, trainers, code
+cards, sealed products and Pokemon Japan. Calls are sequential with a 250 ms
+pause. A per-process lock prevents concurrent collectors. A rerun within the
+same UTC queue day skips completed products and retries failed products at most
+three times. Successful empty responses mean **no published history**, not zero
+sales. HTTP 401/403/429 or three consecutive failures stop the current pass.
+Watch mode backs off 30 minutes for rate limits and 15 minutes for transient
+failures; denied access exits without attempts to bypass it. Completed sweeps
+repeat at the next 00:15 UTC, refreshing the bulk catalog first.
+
+`daily_volume` keeps only product/SKU identifiers, date labels, condition,
+printing, language, quantities, transaction counts and observation timestamps.
+The `(product_id, sku_id, date_source)` key **replaces**, rather than adds,
+overlapping counts, including downward corrections. Previously saved historical
+days remain when the rolling window advances. Updates occur per product, so
+today's counts and source corrections can change during collection.
+
+Only explicit daily bucket counts are summed. On live responses, the top-level
+SKU total counters sometimes differed from the bucket sums; they are not used
+to invent missing daily sales. Market price is **not** average purchase price
+or revenue. Native history reports sales dollars as unavailable (`null` in JSON,
+blank in CSV, a dash on screen); it never fabricates zero-dollar revenue.
+
+The native source is `tcgplayer-daily`, reserved from transaction imports.
+**All daily SKU buckets CSV** streams every matching bucket, not the ranking
+limit or UI page. Daily and per-Pokemon CSVs contain source date labels and
+per-date product coverage counts. Empty/failed products and omitted dates remain
+unknown. Published SKU histories are not proof that every marketplace sale,
+language, listing type or adjustment was included.
+
+Primary endpoint references:
+[Crawlora monthly bucket documentation](https://crawlora.net/docs/tcgplayer/tcgplayer-price-history)
+and [ReefAPI daily-volume documentation](https://reefapi.com/docs/tcgplayer.md).
+Neither paid provider is required or connected; the native endpoint was tested
+directly.
 
 Run `npm run catalog` from a daily external scheduler. It identifies this
 application in its User-Agent, waits at least 100 ms between requests, checks
@@ -88,7 +158,8 @@ streamed rather than loaded into memory; SQLite may need substantial disk space
 for the atomic write transaction. Split provider deliveries into manageable files.
 
 Sources are never summed together: the dashboard automatically selects the
-source with the latest newly inserted transaction, or you can explicitly choose
+native daily history once present, otherwise the source with the latest newly
+inserted transaction. You can explicitly choose
 a source. Browser snapshots remain under `snapshot`. Bulk rows do not silently
 duplicate legacy browser samples. Complete transaction CSV and daily CSV exports
 honor the selected source/date/type filters. Imports remain labeled
@@ -123,10 +194,29 @@ GROUP BY pokemon_key ORDER BY units DESC;
 -- HP-bearing products whose species names did not match the taxonomy.
 SELECT product_id, name, set_name FROM catalog_products
 WHERE is_current=1 AND cast(hp AS INTEGER)>0 AND json_array_length(pokemon)=0;
+
+-- Native daily reported quantities, with explicit per-date product coverage.
+-- These are source date labels, not fabricated UTC transaction timestamps.
+SELECT date_source, sum(quantity) AS units,
+       sum(transaction_count) AS transactions,
+       count(DISTINCT product_id) AS products_with_history
+FROM reported_volume GROUP BY date_source ORDER BY date_source;
+
+-- All saved native singles, grouped across products and SKUs by Pokemon.
+SELECT lower(j.value) AS pokemon, sum(v.quantity) AS units
+FROM reported_volume v, json_each(v.pokemon) j
+WHERE v.kind='single'
+GROUP BY lower(j.value) ORDER BY units DESC;
+
+-- Sweep coverage, including missing and failed histories.
+SELECT * FROM volume_runs ORDER BY date_utc DESC LIMIT 1;
+SELECT status, count(*) AS products FROM volume_jobs
+WHERE date_utc=(SELECT max(date_utc) FROM volume_runs) GROUP BY status;
 ```
 
 Useful tables: `catalog_products`, `catalog_downloads`, `catalog_runs`,
-`pokemon_species`, `bulk_sales`; the older `products`, `sales` and `collections`
+`pokemon_species`, `bulk_sales`, `daily_volume`, `volume_runs`, `volume_jobs`;
+the older `products`, `sales` and `collections`
 retain diagnostic sample history.
 
 ## Data accuracy and coverage
@@ -137,21 +227,24 @@ retain diagnostic sample history.
 - **Observed units** sum transaction quantities. **Observed sales dollars** sum
   quantity times the reported purchase price, interpreted as unit price in USD,
   excluding shipping and taxes. Sale records are not unique customer orders.
-- Days are grouped by the transaction timestamp in **UTC**. A timestamp without
+- Transaction days are grouped by the timestamp in **UTC**. A timestamp without
   a timezone is rejected rather than silently assigning it to a day.
+- Native daily history keeps the source's date labels and reports the unknown
+  timezone explicitly. Zero bucket counts are retained, but failed/empty
+  histories do not create zero-sales records.
 - Website default filters can limit the returned conditions, variants, and
   languages. The collector clears filters when that control is available and
   records the scope. Completeness remains unverified even if every exposed page
   is collected.
-- Three-day rolling sales-chart buckets are **not** imported as daily sales.
-  They overlap and cannot be summed to infer exact daily transactions.
+- Three-day or weekly buckets are **not** imported as daily sales. Overlapping
+  provider archives cannot be summed to infer exact daily transactions.
 - The legacy browser feed supplies no verified stable sale identifier. Content-based
   deduplication retains the maximum observed multiplicity of identical records
   across snapshots, but cannot distinguish all coincident identical sales.
 - Rankings use catalog name-based tags or manual overrides, case-insensitively.
   Unmapped singles are excluded. Multi-Pokemon singles contribute their units to
   each tag; these rankings are not additive.
-- Exports contain **every matching saved sale**, not just the rows displayed.
+- Exports contain **every matching saved transaction or daily SKU bucket**, not just the rows displayed.
   They honor the dashboard date/type filters. The daily CSV contains observed
   days only; omitted dates are unknown, not verified zero-sales days.
 - Buyer/seller/account details are neither collected nor stored.
@@ -170,7 +263,22 @@ TCGplayer product metadata was accessible. Headless browser tests encountered
 sales-service failures, and a separate chart request returned **HTTP 403**.
 An ordinary **visible Chromium window successfully loaded real transaction
 responses**, including timezone-aware timestamps, quantities and purchase prices.
-That mode is retained only for optional diagnostics, not catalog-wide ingestion.
+The per-product transaction collector remains an optional diagnostic, separate
+from the one-context daily-volume API job.
+
+A later plain browser-context API request successfully returned native
+`range=month` history, including 30 one-day buckets per SKU. Singles and the
+151 Poster Collection returned quantities; sampled Japanese and trainer
+products returned empty histories, not verified zero sales. No signed-request
+replay or product-by-product navigation was required.
+
+The first **100-product** live batch saved **15,000 daily SKU buckets** for
+October 2-31, 2026: **34,827 reported units** and **23,218 reported transactions**.
+These are that batch's source-reported counts, **not marketplace totals**.
+Its full SKU CSV contained every 15,000 bucket rows; the Pokemon daily CSV had
+2,070 species/date rows. The local UI showed unavailable revenue correctly,
+30 daily bars, no JavaScript errors and no remote requests. All original 15
+sample transactions were preserved, and no synthetic records entered production.
 
 The anonymous page exposed only **five recent sales** and displayed
 **Sign In to View More Sales**. These are useful observed records, not complete
@@ -235,6 +343,9 @@ invalid imports, stable-ID bulk imports, source isolation, resumable all-categor
 catalog sync, source-count reconciliation, species matching, paginated catalog
 queries, complete CSV exports, gap warnings, daily scheduling across
 the 2026/2027 boundary, browser pagination, and access-failure handling.
+**31 tests** also cover native one-day validation, count corrections, failed/empty
+history separation, queue resume, source isolation, unavailable revenue, and
+streamed exports beyond dashboard ranking limits.
 
 The server binds only to localhost. Keep `data/` private; it contains the SQLite
 database. API and storefront changes may require updating the collector.

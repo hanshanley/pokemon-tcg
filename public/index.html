@@ -13,7 +13,8 @@
       <div><p class="eyebrow">TCGPLAYER / OBSERVED SALES</p><h1>Pokemon sales monitor</h1></div>
       <button id="collect" type="button" disabled>Browser sampling disabled</button>
     </header>
-    <p class="notice" id="coverage">Complete marketplace sales ingestion requires a verified bulk transaction feed. Catalog coverage is not sales coverage. All dates are UTC.</p>
+    <p class="notice" id="coverage">Catalog coverage is not sales coverage. Daily SKU history and individual transactions are separate sources; neither certifies complete marketplace coverage.</p>
+    <p id="volume-progress" class="muted"></p>
     <p id="message" role="status" aria-live="polite"></p>
     <form id="filters" class="filters">
       <label>From<input type="date" name="from" id="from" required></label>
@@ -26,9 +27,9 @@
       <a id="pokemon-export" class="download" href="/api/export/pokemon-daily.csv">Pokemon daily CSV</a>
     </form>
     <section class="cards" aria-label="Observed sales summary">
-      <article><p>Observed units sold</p><strong id="units">—</strong></article>
+      <article><p id="units-label">Observed units sold</p><strong id="units">—</strong></article>
       <article><p>Observed sales value</p><strong id="revenue">—</strong><small>USD, excluding shipping &amp; tax</small></article>
-      <article><p>Observed sale records</p><strong id="records">—</strong><small>Not unique marketplace orders</small></article>
+      <article><p id="records-label">Observed sale records</p><strong id="records">—</strong><small>Not unique marketplace orders</small></article>
     </section>
     <section class="panel">
       <h2>Bulk product catalog</h2>
@@ -49,11 +50,11 @@
     <section class="panel">
       <div class="section-heading"><h2>Daily observed volume</h2><label>Measure<select id="measure"><option value="units">Units</option><option value="sales_usd">Sales dollars</option></select></label></div>
       <div id="chart" aria-live="polite"></div>
-      <p class="muted">Only dates with observed records appear. Blank dates are not confirmed zero-sales days.</p>
+      <p class="muted">Blank dates are not confirmed zero-sales days. Daily history uses the source's date labels; its timezone is not published. Today's and recently reported counts can change.</p>
     </section>
     <div class="columns">
       <section class="panel"><h2>Most popular Pokemon</h2><p class="muted">Observed singles only. Bulk catalog tags match species names on HP-bearing cards; manual tags override them. Unmapped cards are excluded, and multi-Pokemon cards count toward each tag.</p><div id="pokemon-rank"></div></section>
-      <section class="panel"><h2>Best-selling tracked products</h2><p class="muted">Ranked by observed units; includes sealed products.</p><div id="product-rank"></div></section>
+      <section class="panel"><h2>Best-selling products</h2><p class="muted">Ranked by saved units for the selected source; includes sealed products.</p><div id="product-rank"></div></section>
     </div>
     <section class="panel">
       <h2>Diagnostic sample products</h2>
@@ -74,7 +75,7 @@
         <button id="import" type="button" class="secondary">Import sales</button>
       </details>
     </section>
-    <footer>No marketplace-wide completeness claim. Website-visible history may be capped, filtered, delayed, or unavailable. Content-based deduplication is approximate when the source supplies no stable sale ID.</footer>
+    <footer>No marketplace-wide completeness claim. Daily SKU buckets provide reported quantities, not individual transactions or revenue; source coverage may be filtered, delayed, or unavailable. Content-based deduplication applies only to legacy browser samples.</footer>
   </main>
 </body>
 </html>

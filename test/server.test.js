@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { Store } from '../src/store.js';
 import { makeServer, scheduleDaily } from '../src/server.js';
+import { saveMonthHistory } from '../src/volume.js';
 
 async function setup(t, extra = {}) {
   const store = new Store(':memory:');
@@ -132,4 +133,37 @@ test('daily schedule uses the next 00:15 UTC, including the year boundary', () =
   stop = scheduleDaily(app, () => new Date('2026-12-31T23:59:00Z'));
   assert.equal(app.state.next_run, '2027-01-01T00:15:00.000Z');
   stop();
+});
+
+test('daily SKU exports stream all matching buckets and clearly distinguish dates and unavailable revenue', async t => {
+  const { base, store } = await setup(t);
+  const insert = store.db.prepare(`INSERT INTO catalog_products VALUES
+    (?,3,604,'Fixture set',?,'','','','',?,'','build',1)`);
+  for (let id = 1; id <= 36; id++) {
+    insert.run(id, `Fixture card ${id}`, JSON.stringify([`Fixture species ${id}`]));
+    saveMonthHistory(store, id, { count: 1, result: [{
+      skuId: id, condition: 'Near Mint', variant: 'Normal', language: 'English',
+      buckets: Array.from({ length: 30 }, (_, index) => ({
+        bucketStartDate: new Date(Date.UTC(2026, 9, 31 - index)).toISOString().slice(0, 10),
+        quantitySold: 3, transactionCount: 2,
+      })),
+    }] });
+  }
+  const metrics = await (await fetch(`${base}/api/metrics`)).json();
+  assert.equal(metrics.products.length, 25);
+  assert.equal(metrics.total.units, 3240);
+  assert.equal(metrics.total.sale_records, 2160);
+  assert.equal(metrics.total.sales_usd, null);
+  assert.equal((await fetch(`${base}/api/export/sales.csv?source=tcgplayer-daily`)).status, 400);
+  const output = await (await fetch(`${base}/api/export/volume.csv?source=tcgplayer-daily`)).text();
+  assert.equal(output.trim().split('\r\n').length, 1081);
+  assert.match(output, /"date_source","quantity","transaction_count"/);
+  assert.doesNotMatch(output, /unit_price|sales_usd|date_utc/);
+  const daily = await (await fetch(`${base}/api/export/daily.csv?from=2026-10-31&to=2026-10-31`)).text();
+  assert.match(daily, /"2026-10-31","72","108","","tcgplayer-daily"/);
+  assert.match(daily, /"products_with_history","sku_buckets"/);
+  const species = await (await fetch(`${base}/api/export/pokemon-daily.csv`)).text();
+  assert.equal(species.trim().split('\r\n').length, 1081);
+  assert.match(species, /"date_source"/);
+  assert.equal((await fetch(`${base}/api/export/volume.csv?source=snapshot`)).status, 400);
 });

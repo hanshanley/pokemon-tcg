@@ -2,7 +2,8 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { Store, csv } from './store.js';
+import { once } from 'node:events';
+import { Store, csv, volumeSource } from './store.js';
 import { collectAll, productDetails } from './collector.js';
 
 const publicDir = fileURLToPath(new URL('../public/', import.meta.url));
@@ -17,6 +18,29 @@ async function body(request) {
     if (Buffer.byteLength(text) > 5_000_000) throw new Error('Request is too large (maximum 5 MB).');
   }
   try { return JSON.parse(text); } catch { throw new Error('Expected a JSON request body.'); }
+}
+
+async function streamCsv(response, rows, fields) {
+  const header = csv([], fields), signal = new AbortController();
+  response.once('close', () => signal.abort());
+  response.writeHead(200, { 'Content-Type': 'text/csv; charset=utf-8' });
+  response.write(header);
+  let batch = [];
+  const flush = async () => {
+    if (!response.write(csv(batch, fields).slice(header.length))) {
+      await once(response, 'drain', { signal: signal.signal });
+    }
+    batch = [];
+  };
+  for (const row of rows) {
+    if (response.destroyed) return;
+    batch.push({ ...row, pokemon: JSON.parse(row.pokemon).join(' / '),
+      timezone: 'Source bucket dates; timezone not published',
+      coverage: 'reported daily history; marketplace completeness unverified; revenue unavailable' });
+    if (batch.length === 1000) await flush();
+  }
+  if (batch.length) await flush();
+  response.end();
 }
 
 export function makeServer(store, {
@@ -95,7 +119,8 @@ export function makeServer(store, {
       if (request.method !== 'GET') return send(405, { error: 'Method not allowed.' });
       const filters = Object.fromEntries(['from', 'to', 'kind', 'source'].flatMap(key =>
         url.searchParams.has(key) ? [[key, url.searchParams.get(key)]] : []));
-      if (url.pathname === '/api/status') return send(200, state);
+      if (url.pathname === '/api/status') return send(200, { ...state,
+        volume_run: store.db.prepare('SELECT * FROM volume_runs ORDER BY date_utc DESC LIMIT 1').get() ?? null });
       if (url.pathname === '/api/metrics') return send(200, store.metrics(filters, { rankingLimit: 25 }));
       const catalogFilters = Object.fromEntries(['q', 'category', 'limit', 'offset'].flatMap(key =>
         url.searchParams.has(key) ? [[key, url.searchParams.get(key)]] : []));
@@ -118,22 +143,39 @@ export function makeServer(store, {
         response.setHeader('Content-Disposition', 'attachment; filename="observed-sales.csv"');
         return send(200, csv(rows, salesFields), 'text/csv; charset=utf-8');
       }
+      if (url.pathname === '/api/export/volume.csv') {
+        const rows = store.volumeRows(filters);
+        response.setHeader('Content-Disposition', 'attachment; filename="daily-sku-volume.csv"');
+        return await streamCsv(response, rows, ['source', 'product_id', 'product_name', 'kind',
+          'pokemon', 'sku_id', 'date_source', 'quantity', 'transaction_count', 'condition',
+          'variant', 'language', 'first_seen', 'last_seen', 'timezone', 'coverage']);
+      }
       if (url.pathname === '/api/export/daily.csv') {
+        const daily = store.salesSource(filters.source) === volumeSource;
         const rows = store.dailyRows(filters).map(row => ({
-          ...row, date_utc: row.name, source: store.salesSource(filters.source), coverage: 'observed sales; completeness unverified',
+          ...row, [daily ? 'date_source' : 'date_utc']: row.name,
+          source: store.salesSource(filters.source),
+          coverage: daily ? 'reported daily history; completeness unverified; revenue unavailable'
+            : 'observed sales; completeness unverified',
+          timezone: daily ? 'Source bucket dates; timezone not published' : 'UTC',
         }));
         response.setHeader('Content-Disposition', 'attachment; filename="daily-observed-sales.csv"');
-        return send(200, csv(rows, ['date_utc', 'sale_records', 'units', 'sales_usd', 'source', 'coverage']),
+        return send(200, csv(rows, [daily ? 'date_source' : 'date_utc', 'sale_records', 'units',
+          'sales_usd', 'source', 'coverage', 'timezone', ...(daily ? ['products_with_history', 'sku_buckets'] : [])]),
           'text/csv; charset=utf-8');
       }
       if (url.pathname === '/api/export/pokemon-daily.csv') {
+        const daily = store.salesSource(filters.source) === volumeSource;
         const rows = store.pokemonDailyRows(filters).map(row => ({
           ...row, source: store.salesSource(filters.source),
-          coverage: 'observed singles; species attribution and completeness unverified',
+          coverage: daily ? 'reported daily singles; attribution and completeness unverified; revenue unavailable'
+            : 'observed singles; species attribution and completeness unverified',
+          timezone: daily ? 'Source bucket dates; timezone not published' : 'UTC',
         }));
         response.setHeader('Content-Disposition', 'attachment; filename="daily-observed-pokemon-sales.csv"');
-        return send(200, csv(rows, ['date_utc', 'pokemon_key', 'pokemon', 'sale_records',
-          'units', 'sales_usd', 'source', 'coverage']), 'text/csv; charset=utf-8');
+        return send(200, csv(rows, [daily ? 'date_source' : 'date_utc', 'pokemon_key', 'pokemon', 'sale_records',
+          'units', 'sales_usd', 'source', 'coverage', 'timezone', ...(daily ? ['products_with_history'] : [])]),
+        'text/csv; charset=utf-8');
       }
       const files = { '/': ['index.html', 'text/html; charset=utf-8'],
         '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
@@ -142,7 +184,8 @@ export function makeServer(store, {
       if (!file) return send(404, { error: 'Not found.' });
       return send(200, await readFile(resolve(publicDir, file[0])), file[1]);
     } catch (error) {
-      send(400, { error: error.message });
+      if (response.headersSent) response.destroy();
+      else send(400, { error: error.message });
     }
   });
   return { server, state, collect, waitForCollection: () => collection };
@@ -175,7 +218,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     console.log(`Pokemon sales dashboard: http://127.0.0.1:${port}`);
     console.log(browserSampling
       ? `Diagnostic browser sampling enabled. Next: ${app.state.next_run}`
-      : 'Browser sampling disabled. Run npm run catalog for bulk metadata; a complete sales feed is not connected.');
+      : 'Page sampling disabled. Run npm run volume -- --watch for catalog-wide daily SKU history.');
   });
   const shutdown = async () => {
     stopSchedule();

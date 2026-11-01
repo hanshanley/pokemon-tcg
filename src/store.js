@@ -3,6 +3,8 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 
+export const volumeSource = 'tcgplayer-daily';
+
 export function productIdFromUrl(value) {
   const url = new URL(value);
   if (url.protocol !== 'https:' || url.hostname !== 'www.tcgplayer.com' || url.port ||
@@ -113,6 +115,39 @@ export class Store {
         UNIQUE(source, transaction_key)
       );
       CREATE INDEX IF NOT EXISTS bulk_sales_source_date ON bulk_sales(source, sold_at);
+      CREATE TABLE IF NOT EXISTS daily_volume (
+        product_id INTEGER NOT NULL REFERENCES catalog_products(product_id),
+        sku_id INTEGER NOT NULL, date_source TEXT NOT NULL,
+        kind TEXT NOT NULL CHECK(kind IN ('single','sealed','other')),
+        condition TEXT NOT NULL, variant TEXT NOT NULL, language TEXT NOT NULL,
+        quantity INTEGER NOT NULL CHECK(quantity>=0),
+        transaction_count INTEGER NOT NULL CHECK(transaction_count>=0),
+        first_seen TEXT NOT NULL, last_seen TEXT NOT NULL,
+        PRIMARY KEY(product_id,sku_id,date_source)
+      );
+      CREATE INDEX IF NOT EXISTS daily_volume_date ON daily_volume(date_source);
+      CREATE TABLE IF NOT EXISTS volume_runs (
+        date_utc TEXT PRIMARY KEY, started_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        finished_at TEXT, status TEXT NOT NULL, products_expected INTEGER NOT NULL DEFAULT 0,
+        products_checked INTEGER NOT NULL DEFAULT 0,
+        products_with_history INTEGER NOT NULL DEFAULT 0,
+        products_without_history INTEGER NOT NULL DEFAULT 0,
+        products_failed INTEGER NOT NULL DEFAULT 0, warning TEXT NOT NULL DEFAULT ''
+      );
+      CREATE TABLE IF NOT EXISTS volume_jobs (
+        date_utc TEXT NOT NULL REFERENCES volume_runs(date_utc),
+        product_id INTEGER NOT NULL REFERENCES catalog_products(product_id),
+        status TEXT NOT NULL DEFAULT 'pending', attempts INTEGER NOT NULL DEFAULT 0,
+        fetched_at TEXT, buckets INTEGER NOT NULL DEFAULT 0, warning TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY(date_utc,product_id)
+      );
+      CREATE VIEW IF NOT EXISTS reported_volume AS
+        SELECT v.*, 'tcgplayer-daily' AS source, c.name AS product_name,
+          CASE WHEN v.kind <> 'single' THEN '[]'
+            WHEN p.kind='single' AND p.pokemon <> '[]' THEN p.pokemon
+            ELSE c.pokemon END AS pokemon
+        FROM daily_volume v JOIN catalog_products c ON c.product_id=v.product_id
+        LEFT JOIN products p ON p.id=v.product_id;
       CREATE VIEW IF NOT EXISTS observed_sales AS
         SELECT s.id, s.product_id, s.sold_at, s.quantity, s.unit_price_cents,
           s.shipping_cents, s.condition, s.variant, s.language, s.listing_type,
@@ -228,6 +263,7 @@ export class Store {
 
   salesSource(source) {
     if (source == null || source === '') {
+      if (this.db.prepare('SELECT 1 FROM daily_volume LIMIT 1').get()) return volumeSource;
       return this.db.prepare('SELECT source FROM bulk_sales ORDER BY id DESC LIMIT 1').get()?.source
         ?? 'snapshot';
     }
@@ -237,16 +273,17 @@ export class Store {
 
   salesFilter({ from, to, kind = 'all', source } = {}) {
     const conditions = [], params = [];
+    const daily = this.salesSource(source) === volumeSource;
     for (const [name, value] of [['from', from], ['to', to]]) {
       if (value) {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(value) ||
             new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) !== value) {
           throw new Error(`Invalid ${name} date.`);
         }
-        conditions.push(`s.sold_at ${name === 'from' ? '>=' : '<'} ?`);
+        conditions.push(`s.${daily ? 'date_source' : 'sold_at'} ${name === 'from' ? '>=' : '<'} ?`);
         const date = new Date(`${value}T00:00:00Z`);
         if (name === 'to') date.setUTCDate(date.getUTCDate() + 1);
-        params.push(date.toISOString());
+        params.push(daily ? date.toISOString().slice(0, 10) : date.toISOString());
       }
     }
     if (from && to && from > to) throw new Error('Start date must not follow end date.');
@@ -258,6 +295,9 @@ export class Store {
   }
 
   saleRows(filters) {
+    if (this.salesSource(filters?.source) === volumeSource) {
+      throw new Error('Daily history contains no individual transactions. Export daily SKU buckets instead.');
+    }
     const { where, params } = this.salesFilter(filters);
     return this.db.prepare(`
       SELECT s.* FROM observed_sales s ${where}
@@ -267,6 +307,13 @@ export class Store {
 
   dailyRows(filters) {
     const { where, params } = this.salesFilter(filters);
+    if (this.salesSource(filters?.source) === volumeSource) {
+      return this.db.prepare(`SELECT s.date_source AS name,
+        sum(s.transaction_count) AS sale_records, sum(s.quantity) AS units,
+        count(DISTINCT s.product_id) AS products_with_history, count(*) AS sku_buckets,
+        NULL AS sales_usd FROM reported_volume s ${where}
+        GROUP BY name ORDER BY name`).all(...params);
+    }
     return this.db.prepare(`SELECT substr(s.sold_at,1,10) AS name,
       count(*) AS sale_records, sum(s.quantity) AS units,
       sum(s.quantity * s.unit_price_cents)/100.0 AS sales_usd
@@ -275,6 +322,15 @@ export class Store {
 
   pokemonDailyRows(filters) {
     const { where, params } = this.salesFilter(filters);
+    if (this.salesSource(filters?.source) === volumeSource) {
+      return this.db.prepare(`SELECT s.date_source,
+        lower(j.value) AS pokemon_key, min(j.value) AS pokemon,
+        sum(s.transaction_count) AS sale_records, sum(s.quantity) AS units,
+        count(DISTINCT s.product_id) AS products_with_history,
+        NULL AS sales_usd FROM reported_volume s, json_each(s.pokemon) j
+        ${where} AND s.kind='single'
+        GROUP BY date_source, pokemon_key ORDER BY date_source, units DESC, pokemon_key`).all(...params);
+    }
     return this.db.prepare(`SELECT substr(s.sold_at,1,10) AS date_utc,
       lower(j.value) AS pokemon_key, min(j.value) AS pokemon,
       count(*) AS sale_records, sum(s.quantity) AS units,
@@ -288,28 +344,35 @@ export class Store {
       throw new Error('Invalid ranking limit.');
     }
     const limit = rankingLimit ? `LIMIT ${rankingLimit}` : '';
+    const source = this.salesSource(filters?.source);
+    const daily = source === volumeSource;
+    const relation = daily ? 'reported_volume' : 'observed_sales';
     const { where, params } = this.salesFilter(filters);
-    const sum = `count(*) AS sale_records, coalesce(sum(s.quantity),0) AS units,
-      coalesce(sum(s.quantity * s.unit_price_cents),0) AS sales_cents`;
+    const sum = `${daily ? 'coalesce(sum(s.transaction_count),0)' : 'count(*)'} AS sale_records,
+      coalesce(sum(s.quantity),0) AS units,
+      ${daily ? 'NULL' : 'coalesce(sum(s.quantity * s.unit_price_cents),0)'} AS sales_cents`;
     const query = sql => this.db.prepare(sql).all(...params);
     const format = rows => rows.map(({ sales_cents, ...row }) =>
-      ({ ...row, sales_usd: sales_cents / 100 }));
-    const source = this.salesSource(filters?.source);
+      ({ ...row, sales_usd: sales_cents == null ? null : sales_cents / 100 }));
     return {
-      coverage: source === 'snapshot'
+      coverage: daily
+        ? 'TCGplayer-reported daily SKU quantities, not individual transactions. Marketplace completeness and source-date timezone are unverified; missing products/dates are not zero sales. Revenue is unavailable.'
+        : source === 'snapshot'
         ? 'Observed samples only; complete marketplace sales ingestion is blocked by data access.'
         : 'Imported bulk transactions; marketplace-wide completeness remains unverified.',
       sales_source: source,
+      data_kind: daily ? 'daily-buckets' : 'transactions',
       available_sources: ['snapshot', ...this.db.prepare(
         'SELECT DISTINCT source FROM bulk_sales ORDER BY source'
-      ).all().map(row => row.source)],
-      timezone: 'UTC',
-      total: format(query(`SELECT ${sum} FROM observed_sales s ${where}`))[0],
+      ).all().map(row => row.source),
+      ...(this.db.prepare('SELECT 1 FROM daily_volume LIMIT 1').get() ? [volumeSource] : [])],
+      timezone: daily ? 'Source bucket dates; timezone not published' : 'UTC',
+      total: format(query(`SELECT ${sum} FROM ${relation} s ${where}`))[0],
       daily: this.dailyRows(filters),
       products: format(query(`SELECT s.product_id, min(s.product_name) AS name, ${sum}
-        FROM observed_sales s ${where} GROUP BY s.product_id ORDER BY units DESC, name ${limit}`)),
+        FROM ${relation} s ${where} GROUP BY s.product_id ORDER BY units DESC, name ${limit}`)),
       pokemon: format(query(`SELECT min(j.value) AS name, ${sum}
-        FROM observed_sales s, json_each(s.pokemon) j
+        FROM ${relation} s, json_each(s.pokemon) j
         ${where} AND s.kind='single' GROUP BY lower(j.value) ORDER BY units DESC, name ${limit}`)),
       catalog: this.catalogSummary(source),
       tracked_products: this.products(),
@@ -327,7 +390,10 @@ export class Store {
         coalesce(sum(cast(hp AS INTEGER)>0 AND json_array_length(pokemon)=0),0) AS species_needing_review
       FROM catalog_products WHERE is_current=1
     `).get();
-    const withSales = this.db.prepare(
+    const daily = this.salesSource(source) === volumeSource;
+    const withSales = daily ? this.db.prepare(
+      'SELECT count(DISTINCT product_id) AS n FROM daily_volume WHERE quantity>0'
+    ).get().n : this.db.prepare(
       'SELECT count(DISTINCT product_id) AS n FROM observed_sales WHERE source=?'
     ).get(this.salesSource(source)).n;
     return {
@@ -335,8 +401,20 @@ export class Store {
       categories: this.db.prepare(`SELECT category_id, count(*) AS products
         FROM catalog_products WHERE is_current=1 GROUP BY category_id`).all(),
       last_run: this.db.prepare('SELECT * FROM catalog_runs ORDER BY id DESC LIMIT 1').get() ?? null,
-      sales_feed_status: 'No verified complete marketplace-wide transaction feed connected.',
+      volume_run: this.db.prepare('SELECT * FROM volume_runs ORDER BY date_utc DESC LIMIT 1').get() ?? null,
+      sales_feed_status: daily
+        ? 'Native daily history connected; source coverage is not certified marketplace completeness.'
+        : 'No verified complete marketplace-wide transaction feed connected.',
     };
+  }
+
+  volumeRows(filters) {
+    if (filters?.source && filters.source !== volumeSource) {
+      throw new Error('Daily SKU export requires the tcgplayer-daily source.');
+    }
+    const { where, params } = this.salesFilter({ ...filters, source: volumeSource });
+    return this.db.prepare(`SELECT s.* FROM reported_volume s ${where}
+      ORDER BY s.date_source,s.product_id,s.sku_id`).iterate(...params);
   }
 
   catalogRows({ q = '', category, limit = 100, offset = 0 } = {}, all = false) {

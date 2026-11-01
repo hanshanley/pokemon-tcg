@@ -1,6 +1,7 @@
 const $ = selector => document.querySelector(selector);
 const number = value => new Intl.NumberFormat('en-US').format(value);
-const money = value => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+const money = value => value == null ? '—'
+  : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
 let metrics;
 let loading = false;
 let catalogOffset = 0;
@@ -61,7 +62,7 @@ function link(product) {
 function drawChart() {
   const data = metrics?.daily ?? [];
   if (!data.length) {
-    $('#chart').textContent = 'No saved transactions in this range. A bulk product catalog does not establish sales volume; unavailable data is not zero.';
+    $('#chart').textContent = 'No saved sales data in this range. A bulk product catalog does not establish sales volume; unavailable data is not zero.';
     return;
   }
   const key = $('#measure').value;
@@ -75,7 +76,7 @@ function drawChart() {
   const svg = document.createElementNS(ns, 'svg');
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.setAttribute('role', 'img');
-  svg.setAttribute('aria-label', `Daily observed ${key === 'units' ? 'units sold' : 'sales value in USD'}, UTC`);
+  svg.setAttribute('aria-label', `Daily observed ${key === 'units' ? 'units sold' : 'sales value in USD'}, ${metrics.timezone}`);
   const node = (tag, attrs, text) => {
     const el = document.createElementNS(ns, tag);
     for (const [name, value] of Object.entries(attrs)) el.setAttribute(name, value);
@@ -96,7 +97,9 @@ function drawChart() {
     const rect = node('rect', { x: left + index * space + space * .15,
       y: height - bottom - barHeight, width: Math.max(.5, space * .7), height: barHeight, class: 'bar' });
     const title = document.createElementNS(ns, 'title');
-    title.textContent = `${item.name}: ${number(item.units)} units, ${money(item.sales_usd)}`;
+    title.textContent = metrics.data_kind === 'daily-buckets'
+      ? `${item.name}: ${number(item.units)} units across ${number(item.products_with_history)} products with published history; revenue unavailable`
+      : `${item.name}: ${number(item.units)} units, ${money(item.sales_usd)}`;
     rect.append(title);
   }
   for (const [date, x, anchor] of [
@@ -114,27 +117,38 @@ async function refresh() {
       api(`/api/metrics?${query}`), api('/api/status'),
     ]);
     metrics = data;
+    const daily = data.data_kind === 'daily-buckets';
+    $('#measure').querySelector('[value="sales_usd"]').disabled = daily;
+    if (daily) $('#measure').value = 'units';
     $('#coverage').textContent = data.coverage;
     const selected = $('#source').value;
     $('#source').replaceChildren(new Option(`Automatic (${data.sales_source})`, ''),
       ...data.available_sources.map(source => new Option(
-        source === 'snapshot' ? 'Legacy browser samples' : source, source)));
+        source === 'snapshot' ? 'Legacy browser samples'
+          : source === 'tcgplayer-daily' ? 'TCGplayer daily SKU history' : source, source)));
     $('#source').value = selected;
     $('#catalog-coverage').textContent = `${number(data.catalog.products)} catalog products across ${number(data.catalog.sets)} sets. ${number(data.catalog.products_with_saved_sales)} products have saved sales for source "${data.sales_source}". ${number(data.catalog.species_mapped_products)} products have name-based species tags; ${number(data.catalog.species_needing_review)} HP-bearing products need mapping review. Last catalog sync: ${data.catalog.last_run?.status ?? 'not run'}. ${data.catalog.sales_feed_status}`;
-    const hasSales = data.total.sale_records > 0;
+    const hasSales = data.daily.length > 0;
+    $('#units-label').textContent = daily ? 'Reported units sold' : 'Observed units sold';
+    $('#records-label').textContent = daily ? 'Reported transactions' : 'Observed sale records';
     $('#units').textContent = hasSales ? number(data.total.units) : '—';
     $('#revenue').textContent = hasSales ? money(data.total.sales_usd) : '—';
     $('#records').textContent = hasSales ? number(data.total.sale_records) : '—';
     query.set('source', data.sales_source);
-    $('#sales-export').href = `/api/export/sales.csv?${query}`;
+    $('#sales-export').href = `/api/export/${daily ? 'volume' : 'sales'}.csv?${query}`;
+    $('#sales-export').textContent = daily ? 'All daily SKU buckets CSV' : 'All sale records CSV';
     $('#daily-export').href = `/api/export/daily.csv?${query}`;
     $('#pokemon-export').href = `/api/export/pokemon-daily.csv?${query}`;
     $('#collect').disabled = !status.browser_sampling_enabled || status.running || !data.tracked_products.length;
     $('#collect').textContent = !status.browser_sampling_enabled ? 'Browser sampling disabled'
       : status.running ? 'Sampling…' : 'Collect diagnostic samples';
+    const volume = status.volume_run;
+    $('#volume-progress').textContent = volume
+      ? `Daily SKU sweep: ${volume.status}. ${number(volume.products_checked)}/${number(volume.products_expected)} products checked; ${number(volume.products_with_history)} with history, ${number(volume.products_without_history)} without history, ${number(volume.products_failed)} failed. Last update: ${volume.updated_at}. ${volume.warning} Empty or failed histories are not zero sales. Sweeps are not atomic daily snapshots.`
+      : 'Daily SKU collection has not run. Start npm run volume -- --watch.';
     $('#schedule').textContent = status.browser_sampling_enabled
       ? `Diagnostic sampling only. Next: ${status.next_run ?? 'not scheduled'}. ${status.error ?? ''}`
-      : 'Page-based collection and its daily scheduler are disabled. Bulk metadata sync and transaction import are separate operations.';
+      : 'Per-product page sampling is disabled. Daily SKU collection uses a resumable API queue in one storefront context; transaction feeds remain separate.';
     table('#pokemon-rank', ['Pokemon', 'Units', 'USD'], data.pokemon.slice(0, 10)
       .map(p => [p.name, number(p.units), money(p.sales_usd)]));
     table('#product-rank', ['Product', 'Units', 'USD'], data.products.slice(0, 10)

@@ -71,4 +71,5 @@ test('different bulk sources stay separate rather than inflating combined market
   assert.equal(store.metrics({ source: 'first' }).total.units, 2);
   assert.deepEqual(store.metrics().available_sources, ['snapshot', 'first', 'second']);
   await assert.rejects(importTransactions(store, path, 'snapshot'), /source name/);
+  await assert.rejects(importTransactions(store, path, 'tcgplayer-daily'), /source name/);
 });

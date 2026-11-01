@@ -11,9 +11,10 @@
     "collect": "node src/collect.js",
     "seed": "node src/collect.js --seed",
     "catalog": "node src/catalog.js",
+    "volume": "node src/volume.js",
     "import": "node src/import.js",
     "test": "node --test",
-    "check": "node --check src/store.js && node --check src/catalog.js && node --check src/import.js && node --check src/collector.js && node --check src/collect.js && node --check src/server.js && node --check public/app.js"
+    "check": "node --check src/store.js && node --check src/catalog.js && node --check src/import.js && node --check src/volume.js && node --check src/collector.js && node --check src/collect.js && node --check src/server.js && node --check public/app.js"
   },
   "dependencies": {
     "playwright": "^1.56.1"
