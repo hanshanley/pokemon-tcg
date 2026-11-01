@@ -1,0 +1,41 @@
+name: Retain public individual Pokemon sales
+
+on:
+  schedule:
+    - cron: '35 */3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: retained-individual-sales
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Configure repository-scoped publishing
+        run: git config --global credential.https://github.com.helper '!gh auth git-credential'
+      - name: Restore retained actual public transactions
+        id: restore
+        run: |
+          mkdir -p data
+          gh release download individual-sales --pattern public-individual-sales.sqlite.gz --dir data
+          gzip -dc data/public-individual-sales.sqlite.gz > data/public-individual-sales.sqlite
+          node --input-type=module -e "import {Store} from './src/store.js'; const s=new Store('data/public-individual-sales.sqlite'); try { if(Object.values(s.db.prepare('PRAGMA quick_check').get())[0]!=='ok' || !s.products().length || !s.db.prepare('SELECT 1 FROM sales LIMIT 1').get()) throw new Error('Invalid or empty retained checkpoint'); } finally { s.close(); }"
+      - name: Capture normal signed-out storefront responses
+        run: xvfb-run -a npm run individual
+      - name: Preserve history and publish full captured-row downloads
+        if: ${{ always() && !cancelled() && steps.restore.outcome == 'success' }}
+        run: npm run individual -- --publish

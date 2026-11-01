@@ -194,22 +194,41 @@ The current storefront sends signed recent-sale requests; unsigned public POST
 access has not been verified.
 A complete individual-sale archive is still not connected.
 
-### Actual individual-sale starter archive
+### Automatically retained individual-sale archive
 
-`reports/individual-sales/transactions.csv` contains **20 actual public sale
+`reports/individual-sales/transactions.csv` was seeded with **20 actual public sale
 records** captured on November 1, 2026 across Charizard, Trevenant VMAX, Surging
-Sparks Booster Box and Japanese Pikachu. They represent 27 units and $4,497.69
+Sparks Booster Box and Japanese Pikachu: 27 units and $4,497.69
 in **captured item-sales value**, not total marketplace volume. Fields include
 UTC sale timestamps, quantities, unit prices, reported shipping, condition,
 printing and language. Every captured row is downloadable, not just metadata.
 
 The separate `individual-sales` GitHub release contains the complete CSV and
-public-only SQLite archive, both compressed, plus `coverage.json`. This is a
-bounded starter capture, **not** a product-page crawl of the whole catalog.
+public-only SQLite archive, both compressed, plus `coverage.json`, daily captured
+item-sales totals and daily Pokemon rankings. The **Retain public individual
+Pokemon sales** GitHub Actions workflow checks these four products every three
+hours (`35 */3 * * *` UTC), without this Mac. Each runner restores the archive,
+captures ordinary public storefront responses, deduplicates overlapping rows,
+retains older sales and republishes every captured row on `main` as Hans Hanley.
+This is a bounded forward-retention job, **not** a product-page crawl of the whole catalog.
 Signed-out sales-history responses returned five recent rows per product and
-the normal UI required sign-in for more. Complete transaction ingestion needs
-authenticated access or an authorized feed; this starter archive is not yet
-updated automatically. Account data, credentials and signed request values
+the normal UI required sign-in for more. A three-hour check cannot guarantee
+capturing every sale in a five-row window. Possible non-overlapping windows
+remain flagged across future checkpoints. Failed checks preserve older rows
+and do not advance `last_successful_check_at`; denials and rate limits stop
+without retrying. A missing/corrupt checkpoint fails instead of restarting empty.
+
+```sh
+# Poll only the dedicated public archive, never the production database:
+npm run individual
+npm run individual -- --publish
+```
+
+Before a manual publication, restore the latest release checkpoint, as the
+workflow does; an old local copy is not a synchronized remote archive.
+
+Complete catalog-wide transaction ingestion still needs
+authenticated access or an authorized feed. Account data, credentials and signed request values
 are not included. Daily SKU prices remain a separate dataset.
 
 The native source is `tcgplayer-daily`, reserved from transaction imports.
@@ -224,6 +243,21 @@ Primary endpoint references:
 and [ReefAPI daily-volume documentation](https://reefapi.com/docs/tcgplayer.md).
 Neither paid provider is required or connected; the native endpoint was tested
 directly.
+
+### Alternative actual-sale sources checked November 1, 2026
+
+| Source | Actual-sale data | Remaining requirements |
+| --- | --- | --- |
+| [CompSniper TCGplayer API](https://compsniper.com/docs/tcgplayer) | Exact TCGplayer product IDs, singles/sealed metadata, quantities, unit prices, shipping and timestamps through ordinary authenticated API calls. | API key needed for live validation. `count=250` is a recent-sale cap, not full historical coverage, even when `salesHistory` says `full`. Busy products need more frequent checks; use overlaps and content/multiplicity deduplication. |
+| [The Card API](https://www.thecardapi.com/docs) | Verified its normal public search returns paginated individual TCGplayer and other marketplace records, 1,000 per page, without product-page browsing. Its authenticated API documents cursors and `indexed_after` for bulk incremental sync. | Reduced public records omit quantities and price-confirmation/currency fields. [Terms](https://www.thecardapi.com/terms) forbid persistent storage on the free tier and standalone dataset redistribution without an agreement. Evaluation responses were inspected in memory, not archived or published. A paid storage entitlement and redistribution agreement are needed for the requested GitHub archive. |
+| [PriceCharting](https://www.pricecharting.com/game/pokemon-base-set/charizard-4) | Verified public individual eBay and TCGplayer sales with dates and reported prices. | Quantities/exact times are absent. Its official API/CSV do not provide historical sales; [terms](https://www.pricecharting.com/page/terms-of-service) restrict app redistribution. No archive or public mirror was created. |
+| [TCGAPIs](https://tcgapis.com/documentation) | `/sales-history/:productId` documents recent transaction rows. | Requires Business+ access. `/full` is explicitly an overlapping three-day SKU-bucket archive, **not** individual transactions. No key/subscription is connected. |
+
+No alternative provider is silently enabled, and no subscription was purchased.
+The three-hour job currently preserves only the four public TCGplayer captures;
+it does not solve the full-catalog feed requirement. API data must be live-verified
+for price, quantity, product identity, completeness and permitted persistence/
+publication before replacing this bounded source.
 
 Run `npm run catalog` from a daily external scheduler. It identifies this
 application in its User-Agent, waits at least 100 ms between requests, checks
