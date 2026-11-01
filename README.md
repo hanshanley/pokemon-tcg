@@ -194,6 +194,24 @@ The current storefront sends signed recent-sale requests; unsigned public POST
 access has not been verified.
 A complete individual-sale archive is still not connected.
 
+### Actual individual-sale starter archive
+
+`reports/individual-sales/transactions.csv` contains **20 actual public sale
+records** captured on November 1, 2026 across Charizard, Trevenant VMAX, Surging
+Sparks Booster Box and Japanese Pikachu. They represent 27 units and $4,497.69
+in **captured item-sales value**, not total marketplace volume. Fields include
+UTC sale timestamps, quantities, unit prices, reported shipping, condition,
+printing and language. Every captured row is downloadable, not just metadata.
+
+The separate `individual-sales` GitHub release contains the complete CSV and
+public-only SQLite archive, both compressed, plus `coverage.json`. This is a
+bounded starter capture, **not** a product-page crawl of the whole catalog.
+Signed-out sales-history responses returned five recent rows per product and
+the normal UI required sign-in for more. Complete transaction ingestion needs
+authenticated access or an authorized feed; this starter archive is not yet
+updated automatically. Account data, credentials and signed request values
+are not included. Daily SKU prices remain a separate dataset.
+
 The native source is `tcgplayer-daily`, reserved from transaction imports.
 **All daily SKU buckets CSV** streams every matching bucket, not the ranking
 limit or UI page. Daily and per-Pokemon CSVs contain source date labels and

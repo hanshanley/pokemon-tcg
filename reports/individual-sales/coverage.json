@@ -1,0 +1,44 @@
+{
+  "source": "tcgplayer-public-individual-sales",
+  "records": 20,
+  "units": 27,
+  "item_sales_cents": 449769,
+  "first_sale_utc": "2026-10-13T08:48:19.327Z",
+  "last_sale_utc": "2026-11-01T18:21:46.763Z",
+  "observed_at": "2026-11-01T19:16:05.377Z",
+  "item_sales_usd": 4497.69,
+  "products": [
+    {
+      "product_id": 42382,
+      "name": "Charizard",
+      "status": "partial",
+      "rows_seen": 5,
+      "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity. Initial snapshot; earlier sales may be missing."
+    },
+    {
+      "product_id": 246708,
+      "name": "Trevenant VMAX",
+      "status": "partial",
+      "rows_seen": 5,
+      "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity. Initial snapshot; earlier sales may be missing."
+    },
+    {
+      "product_id": 565606,
+      "name": "Surging Sparks Booster Box",
+      "status": "partial",
+      "rows_seen": 5,
+      "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity. Initial snapshot; earlier sales may be missing."
+    },
+    {
+      "product_id": 565879,
+      "name": "Pikachu",
+      "status": "partial",
+      "rows_seen": 5,
+      "warning": "The site requires sign-in for additional history. Scope: website default filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity. Initial snapshot; earlier sales may be missing."
+    }
+  ],
+  "marketplace_completeness": "unverified",
+  "history_completeness": "incomplete; signed-out website returns five recent rows per product",
+  "automatic_individual_collection": false,
+  "notes": "Real individual-sale rows, not native daily buckets or market-price estimates. Dollars sum reported unit price times quantity for these captured rows only, excluding shipping and tax. Source sale IDs are not exposed; records are deduplicated by content and multiplicity. Full history requires authenticated access or an authorized transaction feed. No account data or credentials included."
+}
