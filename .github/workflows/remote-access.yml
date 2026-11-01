@@ -1,0 +1,33 @@
+name: Verify remote TCGplayer access
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Fetch native daily history through an ordinary remote browser
+        run: |
+          xvfb-run -a node --input-type=module <<'JS'
+          import { historyBrowser, monthHistory } from './src/volume.js';
+          const transport = await historyBrowser();
+          try {
+            const response = await transport.fetchHistory(42382);
+            if (response.status !== 200) throw new Error(`Remote history HTTP ${response.status}; no bypass attempted.`);
+            const rows = monthHistory(response.body);
+            if (!rows.length) throw new Error('Known product did not return verified daily history.');
+            console.log(JSON.stringify({ status: response.status, buckets: rows.length,
+              units: rows.reduce((n, row) => n + row.quantity, 0), remote: true }));
+          } finally { await transport.close(); }
+          JS
