@@ -19,6 +19,6 @@ jobs:
           node-version: '22'
       - name: Check published data, not just the workflow timestamp
         run: |
-          git fetch --depth=1 origin daily-data
+          git fetch --depth=1 origin main
           git show FETCH_HEAD:reports/latest/coverage.json > "$RUNNER_TEMP/coverage.json"
           node src/publish.js --check "$RUNNER_TEMP/coverage.json"

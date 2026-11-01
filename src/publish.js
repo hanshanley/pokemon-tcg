@@ -9,7 +9,7 @@ import { createGzip } from 'node:zlib';
 import { Store, csv, volumeSource } from './store.js';
 
 const repo = 'hanshanley/pokemon-tcg';
-const branch = 'daily-data';
+const branch = 'main';
 const tag = 'daily-volume';
 const reportFiles = ['coverage.json', 'daily-volume.csv', 'pokemon-daily.csv', 'product-volume.csv'];
 const assetFiles = ['daily-sku-volume.csv.gz', 'pokemon-product-catalog.csv.gz', ...reportFiles];
@@ -110,12 +110,10 @@ export async function publishGitHub(dataDirectory) {
     const checkout = join(temporary, 'checkout');
     const command = (name, args, cwd = temporary) =>
       execFileSync(name, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim();
-    command('git', ['clone', '--depth', '1', `https://github.com/${repo}.git`, checkout]);
-    const exists = command('git', ['ls-remote', '--heads', 'origin', branch], checkout);
-    if (exists) {
-      command('git', ['fetch', '--depth', '1', 'origin', branch], checkout);
-      command('git', ['switch', '-c', branch, 'FETCH_HEAD'], checkout);
-    } else command('git', ['switch', '-c', branch], checkout);
+    command('git', ['clone', '--depth', '1', '--branch', branch,
+      `https://github.com/${repo}.git`, checkout]);
+    command('git', ['config', 'user.name', 'Hans Hanley'], checkout);
+    command('git', ['config', 'user.email', '22331826+hanshanley@users.noreply.github.com'], checkout);
     const output = join(checkout, 'reports', 'latest');
     const coverage = await exportSnapshot(store, output);
     store.close(); store = null;
@@ -129,10 +127,15 @@ export async function publishGitHub(dataDirectory) {
       ...assetFiles.map(name => join(output, name))]);
     command('gh', ['release', 'edit', tag, '--repo', repo, '--notes', notes]);
     command('git', ['add', '--', ...reportFiles.map(name => `reports/latest/${name}`)], checkout);
-    command('git', ['-c', 'user.name=Hans Hanley',
-      '-c', 'user.email=22331826+hanshanley@users.noreply.github.com', 'commit',
+    command('git', ['commit',
       '-m', `Update daily Pokemon volume: ${coverage.generated_at.slice(0, 10)}`], checkout);
-    command('git', ['push', 'origin', branch], checkout);
+    for (let attempt = 0; ; attempt++) {
+      try { command('git', ['push', 'origin', branch], checkout); break; }
+      catch (error) {
+        if (attempt >= 2) throw error;
+        command('git', ['pull', '--rebase', 'origin', branch], checkout);
+      }
+    }
     console.log(JSON.stringify({ ...coverage, github_branch: branch,
       commit: command('git', ['rev-parse', 'HEAD'], checkout) }, null, 2));
     return coverage;

@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { Store } from '../src/store.js';
 import { saveMonthHistory } from '../src/volume.js';
-import { exportSnapshot, checkFreshness } from '../src/publish.js';
+import { exportSnapshot, checkFreshness, publishGitHub } from '../src/publish.js';
 
 test('published reports and complete compressed downloads retain corrected counts and zero buckets', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'pokemon-publish-'));
@@ -53,4 +55,64 @@ test('publishing rejects absent or stale observations rather than producing fres
   assert.doesNotThrow(() => checkFreshness({ ...coverage, generated_at: '2026-10-31T11:00:00Z',
     last_successful_check_at: now.toISOString() }, now));
   assert.doesNotThrow(() => checkFreshness({ ...coverage, last_successful_check_at: now.toISOString() }, now));
+});
+
+test('publishing keeps main as the only branch and preserves concurrent code commits', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'pokemon-publish-main-'));
+  const originalEnvironment = { ...process.env };
+  t.after(() => {
+    process.env = originalEnvironment;
+    rmSync(directory, { recursive: true });
+  });
+  const git = args => execFileSync('git', args, { encoding: 'utf8' }).trim();
+  const source = join(directory, 'source');
+  const remote = join(directory, 'remote.git');
+  git(['init', '--initial-branch=main', source]);
+  git(['-C', source, 'config', 'user.name', 'Fixture']);
+  git(['-C', source, 'config', 'user.email', 'fixture@example.test']);
+  writeFileSync(join(source, 'app.txt'), 'Existing application code\n');
+  git(['-C', source, 'add', '.']);
+  git(['-C', source, 'commit', '-m', 'Initial application']);
+  git(['clone', '--bare', source, remote]);
+  process.env.GIT_CONFIG_COUNT = '1';
+  process.env.GIT_CONFIG_KEY_0 = `url.${pathToFileURL(remote).href}.insteadOf`;
+  process.env.GIT_CONFIG_VALUE_0 = 'https://github.com/hanshanley/pokemon-tcg.git';
+  process.env.GIT_CONFIG_GLOBAL = '/dev/null';
+  process.env.GIT_CONFIG_NOSYSTEM = '1';
+  process.env.TEST_PUBLICATION_SOURCE = source;
+  process.env.TEST_PUBLICATION_REMOTE = remote;
+  process.env.PATH = `${directory}:${process.env.PATH}`;
+  writeFileSync(join(directory, 'gh'), `#!/usr/bin/env node
+const {writeFileSync} = require('node:fs');
+const {execFileSync} = require('node:child_process');
+if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
+  const source = process.env.TEST_PUBLICATION_SOURCE;
+  const git = args => execFileSync('git', ['-C', source, ...args]);
+  writeFileSync(source + '/concurrent.txt', 'Concurrent application update\\n');
+  git(['add', '.']);
+  git(['commit', '-m', 'Concurrent application update']);
+  git(['push', process.env.TEST_PUBLICATION_REMOTE, 'main']);
+}
+`, { mode: 0o755 });
+  const data = join(directory, 'data');
+  const store = new Store(join(data, 'sales.sqlite'));
+  try {
+    store.db.prepare(`INSERT INTO catalog_products VALUES
+      (1,3,604,'Fixture set','Charizard','','','','','["Charizard"]','','build',1)`).run();
+    const now = new Date();
+    saveMonthHistory(store, 1, { count: 1, result: [{ skuId: '101',
+      condition: 'Near Mint', variant: 'Holofoil', language: 'English',
+      buckets: Array.from({ length: 30 }, (_, index) => ({
+        bucketStartDate: new Date(now - index * 86400000).toISOString().slice(0, 10),
+        quantitySold: index === 0 ? 3 : 0, transactionCount: index === 0 ? 2 : 0,
+      })) }] }, now.toISOString());
+  } finally { store.close(); }
+  const coverage = await publishGitHub(data);
+  assert.equal(coverage.units, 3);
+  assert.equal(git(['--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads']), 'refs/heads/main');
+  assert.equal(git(['--git-dir', remote, 'show', 'main:app.txt']), 'Existing application code');
+  assert.equal(git(['--git-dir', remote, 'show', 'main:concurrent.txt']), 'Concurrent application update');
+  const published = JSON.parse(git(['--git-dir', remote, 'show', 'main:reports/latest/coverage.json']));
+  assert.equal(published.units, 3);
+  assert.equal(published.sku_buckets, 30);
 });

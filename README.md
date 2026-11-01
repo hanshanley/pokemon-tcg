@@ -104,9 +104,11 @@ The GitHub Actions **Daily remote Pokemon sales** workflow starts at
 It runs three sequential passes of up to 25,000 products each. Each pass
 has a four-hour collection deadline, persists its checkpoint, and publishes
 complete aggregate CSVs and coverage to the
-[`daily-data` branch](https://github.com/hanshanley/pokemon-tcg/tree/daily-data/reports/latest)
+[`main` branch](https://github.com/hanshanley/pokemon-tcg/tree/main/reports/latest)
 as **Hans Hanley**, without Copilot trailers. Publishing uses an isolated checkout and
-does not stage or change the development worktree.
+does not stage or change the development worktree. `main` is the only branch;
+if code advances during publication, the report commit is rebased onto it
+before retrying the push.
 
 The [daily-volume release](https://github.com/hanshanley/pokemon-tcg/releases/tag/daily-volume)
 contains **all retained daily SKU buckets** and the entire current product
@@ -405,7 +407,7 @@ invalid imports, stable-ID bulk imports, source isolation, resumable all-categor
 catalog sync, source-count reconciliation, species matching, paginated catalog
 queries, complete CSV exports, gap warnings, daily scheduling across
 the 2026/2027 boundary, browser pagination, and access-failure handling.
-**36 tests** also cover native one-day validation, count corrections, failed/empty
+**37 tests** also cover native one-day validation, count corrections, failed/empty
 history separation, queue resume, source isolation, unavailable revenue, and
 streamed exports beyond dashboard ranking limits, plus existing-database rollup
 migration and subsequent corrections, complete compressed publishing, and
