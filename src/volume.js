@@ -82,6 +82,10 @@ export function saveMonthHistory(store, productId, payload, now = new Date().toI
   store.db.exec('BEGIN IMMEDIATE');
   try {
     for (const row of rows) insert.run(productId, ...Object.values(row), now, now);
+    store.db.prepare('DELETE FROM volume_product_days WHERE product_id=?').run(productId);
+    store.db.prepare(`INSERT INTO volume_product_days
+      SELECT product_id,date_source,kind,sum(quantity),sum(transaction_count),count(*)
+      FROM daily_volume WHERE product_id=? GROUP BY product_id,date_source,kind`).run(productId);
     if (runDate) store.db.prepare(`UPDATE volume_jobs
       SET status=?,fetched_at=?,buckets=?,warning='' WHERE date_utc=? AND product_id=?`)
       .run(rows.length ? 'success' : 'empty', now, rows.length, runDate, productId);

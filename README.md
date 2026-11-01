@@ -102,6 +102,11 @@ overlapping counts, including downward corrections. Previously saved historical
 days remain when the rolling window advances. Updates occur per product, so
 today's counts and source corrections can change during collection.
 
+`volume_product_days` maintains product/date/kind rollups in the same transaction
+as raw bucket updates. Existing databases backfill these once on startup.
+Dashboard and species queries use the rollups; complete SKU exports still read
+the original buckets, including explicit zero days.
+
 Only explicit daily bucket counts are summed. On live responses, the top-level
 SKU total counters sometimes differed from the bucket sums; they are not used
 to invent missing daily sales. Market price is **not** average purchase price
@@ -280,6 +285,12 @@ Its full SKU CSV contained every 15,000 bucket rows; the Pokemon daily CSV had
 30 daily bars, no JavaScript errors and no remote requests. All original 15
 sample transactions were preserved, and no synthetic records entered production.
 
+An isolated scale test on November 1, 2026 used **4,953,600 synthetic buckets**
+across 33,024 products, five SKUs and 30 days. Product/day rollups reduced the
+dashboard metrics query from 10,150 ms to **1,571 ms**, preserving exact totals,
+zero-day product coverage and complete raw buckets. The temporary database was
+removed; these synthetic counts are not sales observations.
+
 The anonymous page exposed only **five recent sales** and displayed
 **Sign In to View More Sales**. These are useful observed records, not complete
 daily product totals. The collector respects that limit and records a partial
@@ -343,9 +354,10 @@ invalid imports, stable-ID bulk imports, source isolation, resumable all-categor
 catalog sync, source-count reconciliation, species matching, paginated catalog
 queries, complete CSV exports, gap warnings, daily scheduling across
 the 2026/2027 boundary, browser pagination, and access-failure handling.
-**31 tests** also cover native one-day validation, count corrections, failed/empty
+**32 tests** also cover native one-day validation, count corrections, failed/empty
 history separation, queue resume, source isolation, unavailable revenue, and
-streamed exports beyond dashboard ranking limits.
+streamed exports beyond dashboard ranking limits, plus existing-database rollup
+migration and subsequent corrections.
 
 The server binds only to localhost. Keep `data/` private; it contains the SQLite
 database. API and storefront changes may require updating the collector.

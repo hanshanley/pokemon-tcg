@@ -178,6 +178,37 @@ export class Store {
         WHERE s.kind='single'
         GROUP BY s.source, date_utc, pokemon_key;
     `);
+    if (!this.db.prepare(`SELECT 1 FROM sqlite_master
+        WHERE type='table' AND name='volume_product_days'`).get()) {
+      this.db.exec('BEGIN IMMEDIATE');
+      try {
+        if (!this.db.prepare(`SELECT 1 FROM sqlite_master
+            WHERE type='table' AND name='volume_product_days'`).get()) this.db.exec(`
+          CREATE TABLE volume_product_days (
+            product_id INTEGER NOT NULL REFERENCES catalog_products(product_id),
+            date_source TEXT NOT NULL, kind TEXT NOT NULL,
+            quantity INTEGER NOT NULL, transaction_count INTEGER NOT NULL,
+            sku_buckets INTEGER NOT NULL, PRIMARY KEY(product_id,date_source,kind)
+          );
+          INSERT INTO volume_product_days
+            SELECT product_id,date_source,kind,sum(quantity),sum(transaction_count),count(*)
+            FROM daily_volume GROUP BY product_id,date_source,kind;
+        `);
+        this.db.exec('COMMIT');
+      } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+    }
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS volume_product_days_date ON volume_product_days(date_source);
+      CREATE INDEX IF NOT EXISTS volume_product_days_active ON volume_product_days(date_source,product_id)
+        WHERE quantity>0 OR transaction_count>0;
+      CREATE VIEW IF NOT EXISTS reported_product_volume AS
+        SELECT v.*, 'tcgplayer-daily' AS source, c.name AS product_name,
+          CASE WHEN v.kind <> 'single' THEN '[]'
+            WHEN p.kind='single' AND p.pokemon <> '[]' THEN p.pokemon
+            ELSE c.pokemon END AS pokemon
+        FROM volume_product_days v JOIN catalog_products c ON c.product_id=v.product_id
+        LEFT JOIN products p ON p.id=v.product_id;
+    `);
   }
 
   close() { this.db.close(); }
@@ -310,8 +341,8 @@ export class Store {
     if (this.salesSource(filters?.source) === volumeSource) {
       return this.db.prepare(`SELECT s.date_source AS name,
         sum(s.transaction_count) AS sale_records, sum(s.quantity) AS units,
-        count(DISTINCT s.product_id) AS products_with_history, count(*) AS sku_buckets,
-        NULL AS sales_usd FROM reported_volume s ${where}
+        count(DISTINCT s.product_id) AS products_with_history, sum(s.sku_buckets) AS sku_buckets,
+        NULL AS sales_usd FROM (SELECT *, 'tcgplayer-daily' AS source FROM volume_product_days) s ${where}
         GROUP BY name ORDER BY name`).all(...params);
     }
     return this.db.prepare(`SELECT substr(s.sold_at,1,10) AS name,
@@ -327,7 +358,7 @@ export class Store {
         lower(j.value) AS pokemon_key, min(j.value) AS pokemon,
         sum(s.transaction_count) AS sale_records, sum(s.quantity) AS units,
         count(DISTINCT s.product_id) AS products_with_history,
-        NULL AS sales_usd FROM reported_volume s, json_each(s.pokemon) j
+        NULL AS sales_usd FROM reported_product_volume s, json_each(s.pokemon) j
         ${where} AND s.kind='single'
         GROUP BY date_source, pokemon_key ORDER BY date_source, units DESC, pokemon_key`).all(...params);
     }
@@ -346,8 +377,9 @@ export class Store {
     const limit = rankingLimit ? `LIMIT ${rankingLimit}` : '';
     const source = this.salesSource(filters?.source);
     const daily = source === volumeSource;
-    const relation = daily ? 'reported_volume' : 'observed_sales';
+    const relation = daily ? 'reported_product_volume' : 'observed_sales';
     const { where, params } = this.salesFilter(filters);
+    const rankingWhere = daily ? `${where} AND (s.quantity>0 OR s.transaction_count>0)` : where;
     const sum = `${daily ? 'coalesce(sum(s.transaction_count),0)' : 'count(*)'} AS sale_records,
       coalesce(sum(s.quantity),0) AS units,
       ${daily ? 'NULL' : 'coalesce(sum(s.quantity * s.unit_price_cents),0)'} AS sales_cents`;
@@ -367,13 +399,13 @@ export class Store {
       ).all().map(row => row.source),
       ...(this.db.prepare('SELECT 1 FROM daily_volume LIMIT 1').get() ? [volumeSource] : [])],
       timezone: daily ? 'Source bucket dates; timezone not published' : 'UTC',
-      total: format(query(`SELECT ${sum} FROM ${relation} s ${where}`))[0],
+      total: format(query(`SELECT ${sum} FROM ${relation} s ${rankingWhere}`))[0],
       daily: this.dailyRows(filters),
       products: format(query(`SELECT s.product_id, min(s.product_name) AS name, ${sum}
-        FROM ${relation} s ${where} GROUP BY s.product_id ORDER BY units DESC, name ${limit}`)),
+        FROM ${relation} s ${rankingWhere} GROUP BY s.product_id ORDER BY units DESC, name ${limit}`)),
       pokemon: format(query(`SELECT min(j.value) AS name, ${sum}
         FROM ${relation} s, json_each(s.pokemon) j
-        ${where} AND s.kind='single' GROUP BY lower(j.value) ORDER BY units DESC, name ${limit}`)),
+        ${rankingWhere} AND s.kind='single' GROUP BY lower(j.value) ORDER BY units DESC, name ${limit}`)),
       catalog: this.catalogSummary(source),
       tracked_products: this.products(),
       recent_collections: this.db.prepare(`
@@ -392,7 +424,7 @@ export class Store {
     `).get();
     const daily = this.salesSource(source) === volumeSource;
     const withSales = daily ? this.db.prepare(
-      'SELECT count(DISTINCT product_id) AS n FROM daily_volume WHERE quantity>0'
+      'SELECT count(DISTINCT product_id) AS n FROM volume_product_days WHERE quantity>0 OR transaction_count>0'
     ).get().n : this.db.prepare(
       'SELECT count(DISTINCT product_id) AS n FROM observed_sales WHERE source=?'
     ).get(this.salesSource(source)).n;

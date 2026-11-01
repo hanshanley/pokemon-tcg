@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Store, volumeSource } from '../src/store.js';
 import { monthHistory, saveMonthHistory, syncVolume } from '../src/volume.js';
 
@@ -131,4 +134,25 @@ test('rate-limited or denied access stops the sweep rather than requesting every
   assert.equal(state.products_checked, 1);
   assert.equal(state.products_with_history, 0);
   assert.equal(store.db.prepare('SELECT count(*) AS n FROM daily_volume').get().n, 0);
+});
+
+test('existing raw daily history migrates into product/day rollups without losing counts or zero days', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'pokemon-volume-migration-'));
+  t.after(() => rmSync(dir, { recursive: true }));
+  const path = join(dir, 'sales.sqlite'), original = new Store(path);
+  try {
+    original.db.prepare(`INSERT INTO catalog_products VALUES
+      (1,3,604,'Fixture set','Charizard','','','','','["Charizard"]','','build',1)`).run();
+    saveMonthHistory(original, 1, history());
+    original.db.exec('DROP VIEW reported_product_volume; DROP TABLE volume_product_days');
+  } finally { original.close(); }
+  const migrated = new Store(path);
+  try {
+    assert.deepEqual(migrated.metrics().total, { sale_records: 2, units: 3, sales_usd: null });
+    assert.equal(migrated.dailyRows().length, 30);
+    assert.equal([...migrated.volumeRows()].length, 30);
+    saveMonthHistory(migrated, 1, history({ quantity: 8, transactions: 5 }));
+    assert.equal(migrated.metrics().total.units, 8);
+    assert.equal(migrated.pokemonDailyRows({ from: '2026-10-31', to: '2026-10-31' })[0].units, 8);
+  } finally { migrated.close(); }
 });
