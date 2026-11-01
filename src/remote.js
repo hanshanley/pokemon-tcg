@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Store } from './store.js';
@@ -7,6 +8,7 @@ import { historyBrowser, syncVolume } from './volume.js';
 
 export function publicCheckpoint(source, destination) {
   if (resolve(source) === resolve(destination)) throw new Error('Checkpoint must not overwrite its source.');
+  if (existsSync(destination)) throw new Error('Public checkpoint destination must be a new file.');
   const target = new Store(destination);
   try {
     const uri = pathToFileURL(resolve(source));

@@ -27,7 +27,11 @@ test('remote checkpoints preserve all public buckets and queue state but exclude
     VALUES ('2026-11-01','now','now','running','local diagnostic');
     INSERT INTO volume_jobs(date_utc,product_id,status,attempts,warning)
     VALUES ('2026-11-01',1,'success',1,'local diagnostic')`);
-  try { assert.equal(publicCheckpoint(source, destination).sku_buckets, 30); }
+  try {
+    assert.equal(publicCheckpoint(source, destination).sku_buckets, 30);
+    assert.throws(() => publicCheckpoint(source, source), /must not overwrite/);
+    assert.throws(() => publicCheckpoint(source, destination), /must be a new file/);
+  }
   finally { store.close(); }
   const remote = new Store(destination);
   try {
@@ -37,6 +41,7 @@ test('remote checkpoints preserve all public buckets and queue state but exclude
     }
     assert.equal(remote.db.prepare('SELECT status FROM volume_runs').get().status, 'paused');
     assert.equal(remote.db.prepare('SELECT warning FROM volume_jobs').get().warning, '');
+    assert.equal(remote.db.prepare('SELECT warning FROM volume_runs').get().warning, '');
     assert.equal(remote.db.prepare('SELECT status FROM volume_jobs').get().status, 'success');
     assert.equal([...remote.volumeRows()].length, 30);
   } finally { remote.close(); }
