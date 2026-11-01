@@ -17,7 +17,7 @@ const assetFiles = ['daily-sku-volume.csv.gz', 'pokemon-product-catalog.csv.gz',
 export function checkFreshness(coverage, now = new Date()) {
   for (const field of ['generated_at', 'last_successful_check_at']) {
     const age = now - new Date(coverage[field]);
-    if (!Number.isFinite(age) || age < -300000 || age > 36 * 3600000) {
+    if (!Number.isFinite(age) || age < -300000 || age > 26 * 3600000) {
       throw new Error(`Daily data is stale or invalid: ${field}. Collection requires the Mac to be online.`);
     }
   }

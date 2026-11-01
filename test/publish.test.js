@@ -48,5 +48,9 @@ test('publishing rejects absent or stale observations rather than producing fres
     generated_at: now.toISOString(), last_successful_check_at: '2026-10-30T12:00:00Z' };
   assert.throws(() => checkFreshness(coverage, now), /last_successful_check_at/);
   assert.throws(() => checkFreshness({ ...coverage, last_successful_check_at: 'bad' }, now), /invalid/);
+  assert.throws(() => checkFreshness({ ...coverage, generated_at: '2026-10-31T09:00:00Z',
+    last_successful_check_at: now.toISOString() }, now), /generated_at/);
+  assert.doesNotThrow(() => checkFreshness({ ...coverage, generated_at: '2026-10-31T11:00:00Z',
+    last_successful_check_at: now.toISOString() }, now));
   assert.doesNotThrow(() => checkFreshness({ ...coverage, last_successful_check_at: now.toISOString() }, now));
 });

@@ -127,7 +127,7 @@ logs are in `data/volume-watch*.log` and `data/github-publish*.log`.
 **This Mac must be awake, logged in and online for collection/publication.**
 The GitHub Actions **Daily sales data freshness** workflow checks at 16:45 UTC
 and can be run manually. It fails if either publication or successful source
-checking is over 36 hours old; a newly generated timestamp alone cannot hide
+checking is over 26 hours old; a newly generated timestamp alone cannot hide
 stale data. A fresh partial sweep remains partial, not certified marketplace
 coverage. The first scheduled publication is November 1, 2026, at 09:00 local
 time; the initial snapshot is published immediately during setup.
