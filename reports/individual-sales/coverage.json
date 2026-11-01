@@ -1,44 +1,66 @@
 {
   "source": "tcgplayer-public-individual-sales",
+  "generated_at": "2026-11-01T22:44:47.284Z",
   "records": 20,
   "units": 27,
   "item_sales_cents": 449769,
   "first_sale_utc": "2026-10-13T08:48:19.327Z",
   "last_sale_utc": "2026-11-01T18:21:46.763Z",
-  "observed_at": "2026-11-01T19:16:05.377Z",
+  "observed_at": "2026-11-01T22:44:46.056Z",
   "item_sales_usd": 4497.69,
+  "last_successful_check_at": "2026-11-01T22:44:46.056Z",
+  "scope": "Bounded public captures of the checkpoint products, not the whole Pokemon catalog.",
   "products": [
     {
       "product_id": 42382,
       "name": "Charizard",
       "status": "partial",
+      "last_collected": "2026-11-01T22:44:32.559Z",
       "rows_seen": 5,
-      "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity. Initial snapshot; earlier sales may be missing."
-    },
-    {
-      "product_id": 246708,
-      "name": "Trevenant VMAX",
-      "status": "partial",
-      "rows_seen": 5,
-      "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity. Initial snapshot; earlier sales may be missing."
-    },
-    {
-      "product_id": 565606,
-      "name": "Surging Sparks Booster Box",
-      "status": "partial",
-      "rows_seen": 5,
-      "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity. Initial snapshot; earlier sales may be missing."
+      "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity.",
+      "possible_gap_collections": 0
     },
     {
       "product_id": 565879,
       "name": "Pikachu",
       "status": "partial",
+      "last_collected": "2026-11-01T22:44:36.892Z",
       "rows_seen": 5,
-      "warning": "The site requires sign-in for additional history. Scope: website default filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity. Initial snapshot; earlier sales may be missing."
+      "warning": "The site requires sign-in for additional history. Scope: website default filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity.",
+      "possible_gap_collections": 0
+    },
+    {
+      "product_id": 565606,
+      "name": "Surging Sparks Booster Box",
+      "status": "partial",
+      "last_collected": "2026-11-01T22:44:41.656Z",
+      "rows_seen": 5,
+      "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity.",
+      "possible_gap_collections": 0
+    },
+    {
+      "product_id": 246708,
+      "name": "Trevenant VMAX",
+      "status": "partial",
+      "last_collected": "2026-11-01T22:44:46.056Z",
+      "rows_seen": 5,
+      "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity.",
+      "possible_gap_collections": 0
     }
   ],
+  "products_tracked": 4,
+  "products_with_possible_gaps": 0,
   "marketplace_completeness": "unverified",
   "history_completeness": "incomplete; signed-out website returns five recent rows per product",
-  "automatic_individual_collection": false,
-  "notes": "Real individual-sale rows, not native daily buckets or market-price estimates. Dollars sum reported unit price times quantity for these captured rows only, excluding shipping and tax. Source sale IDs are not exposed; records are deduplicated by content and multiplicity. Full history requires authenticated access or an authorized transaction feed. No account data or credentials included."
+  "automatic_individual_collection": true,
+  "scheduled_poll_interval_hours": 3,
+  "downloads": [
+    "public-individual-sales.csv.gz",
+    "public-individual-sales.sqlite.gz",
+    "transactions.csv",
+    "coverage.json",
+    "daily-sales.csv",
+    "pokemon-daily.csv"
+  ],
+  "notes": "Real individual-sale rows only. Dollars sum unit price times quantity for retained captured rows, excluding shipping and tax. No stable source sale ID; content/multiplicity deduplication cannot certify completeness. A three-hour schedule cannot guarantee retaining every sale in a five-row window. Possible gaps and failures remain visible; unavailable data is never zero sales. Native daily buckets are separate. No account data, credentials or browser profile included."
 }
