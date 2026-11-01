@@ -172,7 +172,9 @@ export async function historyBrowser() {
       waitUntil: 'domcontentloaded', timeout: 45000,
     });
     if (!response?.ok() || new URL(page.url()).hostname !== 'www.tcgplayer.com') {
-      throw new Error('Public storefront context is unavailable.');
+      const error = new Error('Public storefront context is unavailable.');
+      error.status = response?.status();
+      throw error;
     }
     return {
       close: () => browser.close(),

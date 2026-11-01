@@ -1,0 +1,34 @@
+name: Daily remote Pokemon sales
+
+on:
+  schedule:
+    - cron: '15 0 * * *'
+  workflow_dispatch:
+    inputs:
+      max_products:
+        description: Maximum products per pass; use 100 for a small validation
+        type: number
+        default: 25000
+
+permissions:
+  contents: write
+
+concurrency:
+  group: remote-daily-data
+  cancel-in-progress: false
+
+jobs:
+  first:
+    uses: ./.github/workflows/remote-volume-pass.yml
+    with:
+      max_products: ${{ inputs.max_products || 25000 }}
+  second:
+    needs: first
+    uses: ./.github/workflows/remote-volume-pass.yml
+    with:
+      max_products: ${{ inputs.max_products || 25000 }}
+  third:
+    needs: second
+    uses: ./.github/workflows/remote-volume-pass.yml
+    with:
+      max_products: ${{ inputs.max_products || 25000 }}

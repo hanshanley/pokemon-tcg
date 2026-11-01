@@ -1,0 +1,47 @@
+name: Remote sales collection pass
+
+on:
+  workflow_call:
+    inputs:
+      max_products:
+        required: true
+        type: number
+
+permissions:
+  contents: write
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    env:
+      GH_TOKEN: ${{ github.token }}
+      MAX_PRODUCTS: ${{ inputs.max_products }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Configure repository-scoped publishing credentials
+        run: git config --global credential.https://github.com.helper '!gh auth git-credential'
+      - name: Restore retained public history and resumable queue
+        id: restore
+        run: |
+          mkdir -p data
+          gh release download daily-volume --pattern remote-state.sqlite.gz --dir data
+          gzip -dc data/remote-state.sqlite.gz > data/sales.sqlite
+          node --input-type=module -e "import {Store} from './src/store.js'; const s=new Store('data/sales.sqlite'); const result=s.db.prepare('PRAGMA quick_check').get(); s.close(); if(Object.values(result)[0]!=='ok') throw new Error('Invalid remote checkpoint'); console.log(result);"
+      - name: Collect native daily history without a Mac
+        run: xvfb-run -a node src/remote.js --limit "$MAX_PRODUCTS" --minutes 240
+      - name: Persist a public-only checkpoint even after a collection failure
+        id: checkpoint
+        if: ${{ always() && !cancelled() && steps.restore.outcome == 'success' }}
+        run: |
+          node src/remote.js --checkpoint data/sales.sqlite data/public-state.sqlite
+          gzip -c data/public-state.sqlite > data/remote-state.sqlite.gz
+          gh release upload daily-volume data/remote-state.sqlite.gz --clobber
+      - name: Publish complete downloads and honest sweep coverage
+        if: ${{ always() && !cancelled() && steps.checkpoint.outcome == 'success' }}
+        run: npm run publish

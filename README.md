@@ -97,10 +97,13 @@ repeat at the next 00:15 UTC, refreshing the bulk catalog first.
 
 ## Daily GitHub updates
 
-The installed macOS LaunchAgent publishes at **09:00 local Mac time** and at
-login. It commits complete aggregate CSVs and coverage to the
+The GitHub Actions **Daily remote Pokemon sales** workflow starts at
+**00:15 UTC daily**, using GitHub-hosted Ubuntu runners, not this Mac.
+It runs three sequential passes of up to 25,000 products each. Each pass
+has a four-hour collection deadline, persists its checkpoint, and publishes
+complete aggregate CSVs and coverage to the
 [`daily-data` branch](https://github.com/hanshanley/pokemon-tcg/tree/daily-data/reports/latest)
-as **Hans Hanley**, without Copilot trailers. It uses an isolated checkout and
+as **Hans Hanley**, without Copilot trailers. Publishing uses an isolated checkout and
 does not stage or change the development worktree.
 
 The [daily-volume release](https://github.com/hanshanley/pokemon-tcg/releases/tag/daily-volume)
@@ -110,6 +113,13 @@ metadata-only or limited to the top 25 products. No local SQLite database,
 individual transaction records, credentials or browser profile is uploaded.
 Release assets are refreshed before the report commit is pushed.
 
+`remote-state.sqlite.gz` is a separately constructed **public-only checkpoint**,
+containing catalog/species metadata, native daily buckets and resumable queue
+state. Local transactions, watchlist records and diagnostics are excluded.
+The next runner restores it from GitHub Releases; missing or corrupt state
+fails the run instead of silently losing historical data. Corrections replace
+counts, and previously saved days survive the rolling source window.
+
 ```sh
 # Publish a consistent snapshot immediately (requires authenticated git and gh):
 npm run publish
@@ -117,20 +127,18 @@ npm run publish
 npm run publish -- --check coverage.json
 ```
 
-The collector also starts at login and continues its existing daily UTC sweeps.
-Its LaunchAgent retries startup at 20:15 local time if it has exited; denied
-access still stops collection, without challenge solving or tight retry loops.
-The installed definitions are in
-`~/Library/LaunchAgents/com.hanshanley.pokemon-tcg-{volume,publish}.plist`;
-logs are in `data/volume-watch*.log` and `data/github-publish*.log`.
+**No Mac, personal computer or self-hosted runner is required.**
+The old local collection/publishing LaunchAgents are disabled after remote
+validation to prevent competing uploads. Transient catalog/browser failures
+back off 15 minutes, rate limits 30 minutes, with at most three attempts per
+pass; denied access stops the workflow without bypass attempts.
 
-**This Mac must be awake, logged in and online for collection/publication.**
 The GitHub Actions **Daily sales data freshness** workflow checks at 16:45 UTC
 and can be run manually. It fails if either publication or successful source
 checking is over 26 hours old; a newly generated timestamp alone cannot hide
 stale data. A fresh partial sweep remains partial, not certified marketplace
-coverage. The first scheduled publication is November 1, 2026, at 09:00 local
-time; the initial snapshot is published immediately during setup.
+coverage. Run **Daily remote Pokemon sales** manually with `max_products=100`
+for a bounded validation, or its default of 25,000 for production.
 
 ## Daily volume storage and reporting
 
@@ -393,11 +401,12 @@ invalid imports, stable-ID bulk imports, source isolation, resumable all-categor
 catalog sync, source-count reconciliation, species matching, paginated catalog
 queries, complete CSV exports, gap warnings, daily scheduling across
 the 2026/2027 boundary, browser pagination, and access-failure handling.
-**34 tests** also cover native one-day validation, count corrections, failed/empty
+**36 tests** also cover native one-day validation, count corrections, failed/empty
 history separation, queue resume, source isolation, unavailable revenue, and
 streamed exports beyond dashboard ranking limits, plus existing-database rollup
 migration and subsequent corrections, complete compressed publishing, and
-stale-publication rejection.
+stale-publication rejection, public-only checkpoint isolation, and remote
+bootstrap retry/denied-access handling.
 
 The server binds only to localhost. Keep `data/` private; it contains the SQLite
 database. API and storefront changes may require updating the collector.
