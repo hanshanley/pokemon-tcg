@@ -13,7 +13,8 @@ const repo = 'hanshanley/pokemon-tcg';
 const branch = 'main';
 const tag = 'daily-volume';
 const reportFiles = ['coverage.json', 'daily-volume.csv', 'pokemon-daily.csv', 'product-volume.csv',
-  'daily-sales-value.csv', 'pokemon-sales-value.csv', 'product-sales-value.csv', 'volume.svg'];
+  'daily-sales-value.csv', 'pokemon-sales-value.csv', 'product-sales-value.csv',
+  'daily-trading.csv', 'volume.svg'];
 const assetFiles = ['daily-sku-volume.csv.gz', 'pokemon-product-catalog.csv.gz', ...reportFiles];
 
 export function checkFreshness(coverage, now = new Date()) {

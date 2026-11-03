@@ -48,6 +48,18 @@ test('published reports and complete compressed downloads retain corrected count
   assert.ok(readFileSync(join(directory, 'volume.svg'), 'utf8')
     .includes('3 observed units and 5 reported transactions. Priced subset: $30 to $36'));
   assert.ok(coverage.downloads.includes('volume.svg'));
+  assert.ok(coverage.downloads.includes('daily-trading.csv'));
+  const [header, ...trading] = readFileSync(join(directory, 'daily-trading.csv'), 'utf8')
+    .trimEnd().split(/\r?\n/).map(line => line.split(',').map(cell => JSON.parse(cell)));
+  assert.equal(trading.length, 30);
+  const lastDay = Object.fromEntries(header.map((key, index) => [key, trading.at(-1)[index]]));
+  assert.equal(lastDay.date_source, '2026-10-31');
+  assert.equal(lastDay.units, '3');
+  assert.equal(lastDay.sale_records, '5');
+  assert.equal(lastDay.priced_units, '3');
+  assert.equal(lastDay.priced_sales_lower_usd, '30');
+  assert.equal(lastDay.priced_sales_upper_usd, '36');
+  assert.equal(lastDay.sales_usd, '');
 });
 
 test('publishing rejects absent or stale observations rather than producing fresh-looking zero sales', async t => {
@@ -127,4 +139,6 @@ if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
   assert.equal(published.sku_buckets, 30);
   assert.ok(git(['--git-dir', remote, 'show', 'main:reports/latest/volume.svg'])
     .includes('3 observed units and 2 reported transactions'));
+  assert.equal(git(['--git-dir', remote, 'show', 'main:reports/latest/daily-trading.csv'])
+    .trimEnd().split(/\r?\n/).length, 31);
 });

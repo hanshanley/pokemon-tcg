@@ -493,6 +493,15 @@ the request budget, and the published volume figure's partial price coverage.
 
 ## Overview figure
 
+`daily-trading.csv` joins the complete native daily quantity and sale-value
+reports by source date. It preserves units, reported transactions, product/SKU
+coverage, priced/unpriced units, priced-subset bounds and any established
+all-unit bounds or exact dollars. Missing prices remain blank or explicitly
+unavailable, never invented zero-dollar revenue. The figure displays the seven
+most recent observed dates as a table, including an incomplete current day.
+Bought and sold are opposite sides of the same matched trade, not additive
+quantities. Sealed units count products, not their enclosed cards.
+
 `npm run figures` regenerates `reports/latest/volume.svg` directly from the
 committed daily unit/value CSVs and coverage JSON. The remote publisher runs
 the same renderer for every exported snapshot and publishes the SVG alongside

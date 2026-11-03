@@ -25,6 +25,12 @@ The blue bars show reported units. The green band shows dollar bounds for
 **only the units with actual sale prices**; it is not estimated total revenue.
 Coverage varies by date, and recent dates may be incomplete.
 
+The table below the charts lists **units bought/sold, transaction counts and
+item-dollar value for each recent day**. The [complete daily trading CSV](reports/latest/daily-trading.csv)
+puts these figures and price coverage together for every retained date.
+A sale and its matching purchase are one trade, not two volumes; a sealed
+product counts as one unit, not the number of cards inside.
+
 Separately, the individual-sale archive retains actual timestamps, quantities
 and unit prices for four products. Its captured dollar totals are exact for
 those retained rows, but five-row public windows can miss intervening sales.
@@ -34,7 +40,7 @@ The two datasets are never added together.
 
 | Dataset | Reports | Complete downloads |
 | --- | --- | --- |
-| Daily sales volume | [Units and transactions](reports/latest/daily-volume.csv), [dollar bounds and price coverage](reports/latest/daily-sales-value.csv) | [All retained SKU-day buckets and the product catalog](https://github.com/hanshanley/pokemon-tcg/releases/tag/daily-volume) |
+| Daily sales volume | [Daily units, transactions and dollars together](reports/latest/daily-trading.csv), [price coverage and bounds](reports/latest/daily-sales-value.csv) | [All retained SKU-day buckets and the product catalog](https://github.com/hanshanley/pokemon-tcg/releases/tag/daily-volume) |
 | Pokemon popularity | [Daily units by Pokemon](reports/latest/pokemon-daily.csv), [dollar bounds by Pokemon](reports/latest/pokemon-sales-value.csv) | Included in the daily-volume release |
 | Individual sales | [Every captured sale](reports/individual-sales/transactions.csv), [daily captured dollars](reports/individual-sales/daily-sales.csv) | [Complete CSV and public-only SQLite archive](https://github.com/hanshanley/pokemon-tcg/releases/tag/individual-sales) |
 | Collection coverage | [Catalog sweep and price coverage](reports/latest/coverage.json), [individual-sale checks and gaps](reports/individual-sales/coverage.json) | Coverage files accompany both releases |
