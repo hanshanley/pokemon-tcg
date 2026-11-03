@@ -124,6 +124,38 @@ report actual sale-price bounds, priced/unpriced units, and exact dollars only
 where the published bounds establish them. These files are also committed on
 `main`; multi-Pokemon species totals remain nonadditive.
 
+Daily dimensional reports combine **units bought/sold, reported transactions,
+priced/unpriced units and item-dollar bounds** for every retained observed date:
+
+| Dimension | File | Identity |
+| --- | --- | --- |
+| Product | `product-daily-trading.csv.gz` | `date_source`, `product_id`; includes name and set metadata |
+| Pokemon | `pokemon-sales-value.csv` | `date_source`, lowercase `pokemon_key`; singles only |
+| Set | `set-daily-trading.csv` | `date_source`, `category_id`, `group_id`; includes set name |
+
+The complete product/day CSV is streamed into gzip and published as a release
+asset, not committed as a large Git file. Set and Pokemon daily reports are
+both committed and released. These exports update automatically with every
+native-volume publication; they are not top-product lists.
+
+Set names alone are not unique: English and Japanese categories and different
+groups can share names. Use both numeric IDs when joining or aggregating sets.
+Product and set reports include all observed product types, including trainers,
+sealed items and unmapped singles; their units, transactions and priced-dollar
+bounds sum back to the global daily totals. Species reports omit unmapped
+singles and non-single products. Multi-Pokemon cards contribute their full
+counts and values to each tagged species, so Pokemon totals are **not additive**.
+Set metadata comes from the retained catalog, not a reconstruction of historical
+catalog changes.
+
+`sale_records` means the source's reported transaction count, not SKU buckets or
+units. `priced_sales_lower_usd` and `priced_sales_upper_usd` bound only priced
+units; `sales_lower_usd` and `sales_upper_usd` are blank if any units lack
+prices, and `sales_usd` is blank unless complete bounds are equal. Explicit
+zero buckets remain represented; products or dates with no retained history
+are omitted, not filled with zero. These reports use native source dates and
+exclude the separate, overlapping individual-sale archive.
+
 `remote-state.sqlite.gz` is a separately constructed **public-only checkpoint**,
 containing catalog/species metadata, native daily buckets and resumable queue
 state. Local transactions, watchlist records and diagnostics are excluded.

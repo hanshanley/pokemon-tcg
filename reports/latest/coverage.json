@@ -1,6 +1,6 @@
 {
   "source": "tcgplayer-daily",
-  "generated_at": "2026-11-03T20:43:38.703Z",
+  "generated_at": "2026-11-03T20:53:43.185Z",
   "sku_buckets": 5565153,
   "units": 3657000,
   "transactions": 2354938,
@@ -23,6 +23,7 @@
   "marketplace_completeness": "unverified",
   "source_timezone": "not published",
   "price_volume": {
+    "sale_records": 2354938,
     "units": 3657000,
     "priced_units": 610338,
     "unpriced_units": 3046662,
@@ -36,6 +37,7 @@
   "downloads": [
     "daily-sku-volume.csv.gz",
     "pokemon-product-catalog.csv.gz",
+    "product-daily-trading.csv.gz",
     "coverage.json",
     "daily-volume.csv",
     "pokemon-daily.csv",
@@ -44,6 +46,7 @@
     "pokemon-sales-value.csv",
     "product-sales-value.csv",
     "daily-trading.csv",
+    "set-daily-trading.csv",
     "volume.svg"
   ]
 }

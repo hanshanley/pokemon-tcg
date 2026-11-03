@@ -44,11 +44,22 @@ test('published reports and complete compressed downloads retain corrected count
   assert.ok(readFileSync(join(directory, 'pokemon-daily.csv'), 'utf8')
     .includes('"2026-10-31","charizard","Charizard","5","3","","1"'));
   assert.ok(readFileSync(join(directory, 'product-volume.csv'), 'utf8').includes('"1","Charizard","3","5"'));
+  const productDays = gunzipSync(readFileSync(join(directory, 'product-daily-trading.csv.gz'))).toString();
+  assert.equal(productDays.trimEnd().split('\n').length, 31);
+  assert.ok(productDays.includes(
+    '"2026-10-31","1","Charizard","3","604","Fixture set","5","3","3","0","30","36","30","36",""'));
+  const setDays = readFileSync(join(directory, 'set-daily-trading.csv'), 'utf8');
+  assert.equal(setDays.trimEnd().split('\n').length, 31);
+  assert.ok(setDays.includes('"2026-10-31","3","604","Fixture set","5","3","3","0","30","36","30","36",""'));
+  assert.ok(readFileSync(join(directory, 'pokemon-sales-value.csv'), 'utf8')
+    .includes('"2026-10-31","charizard","Charizard","5","3","3","0","30","36","30","36",""'));
   assert.equal(store.db.prepare('SELECT count(*) AS n FROM daily_volume').get().n, 30);
   assert.ok(readFileSync(join(directory, 'volume.svg'), 'utf8')
     .includes('3 observed units and 5 reported transactions. Priced subset: $30 to $36'));
   assert.ok(coverage.downloads.includes('volume.svg'));
   assert.ok(coverage.downloads.includes('daily-trading.csv'));
+  assert.ok(coverage.downloads.includes('product-daily-trading.csv.gz'));
+  assert.ok(coverage.downloads.includes('set-daily-trading.csv'));
   const [header, ...trading] = readFileSync(join(directory, 'daily-trading.csv'), 'utf8')
     .trimEnd().split(/\r?\n/).map(line => line.split(',').map(cell => JSON.parse(cell)));
   assert.equal(trading.length, 30);
@@ -103,10 +114,14 @@ test('publishing keeps main as the only branch and preserves concurrent code com
   process.env.GIT_CONFIG_NOSYSTEM = '1';
   process.env.TEST_PUBLICATION_SOURCE = source;
   process.env.TEST_PUBLICATION_REMOTE = remote;
+  process.env.TEST_PUBLICATION_ASSETS = join(directory, 'assets.json');
   process.env.PATH = `${directory}:${process.env.PATH}`;
   writeFileSync(join(directory, 'gh'), `#!/usr/bin/env node
 const {writeFileSync} = require('node:fs');
 const {execFileSync} = require('node:child_process');
+if (process.argv[2] === 'release' && process.argv[3] === 'upload') {
+  writeFileSync(process.env.TEST_PUBLICATION_ASSETS, JSON.stringify(process.argv.slice(4)));
+}
 if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
   const source = process.env.TEST_PUBLICATION_SOURCE;
   const git = args => execFileSync('git', ['-C', source, ...args]);
@@ -141,4 +156,10 @@ if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
     .includes('3 observed units and 2 reported transactions'));
   assert.equal(git(['--git-dir', remote, 'show', 'main:reports/latest/daily-trading.csv'])
     .trimEnd().split(/\r?\n/).length, 31);
+  assert.equal(git(['--git-dir', remote, 'show', 'main:reports/latest/set-daily-trading.csv'])
+    .trimEnd().split(/\r?\n/).length, 31);
+  assert.ok(JSON.parse(readFileSync(process.env.TEST_PUBLICATION_ASSETS, 'utf8'))
+    .some(path => path.endsWith('/product-daily-trading.csv.gz')));
+  assert.ok(!git(['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'main'])
+    .includes('product-daily-trading.csv.gz'));
 });

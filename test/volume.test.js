@@ -194,6 +194,78 @@ test('actual sale-price ranges bound dollars, preserve corrections, and never su
   assert.equal(store.saleValueRows({ from:'2026-09-01',to:'2026-09-01' })[0].sales_usd,null);
 });
 
+test('daily product, Pokemon and set values preserve counts, distinct set IDs, price gaps and corrections', t => {
+  const store = setup(t), date = '2026-10-31';
+  const insert = store.db.prepare(`INSERT INTO catalog_products VALUES
+    (?,?,?,'Fixture set',?,'','','','',?,'','build',1)`);
+  insert.run(4, 85, 604, 'Charizard & Mewtwo', '["Charizard","Mewtwo"]');
+  insert.run(5, 3, 605, 'Squirtle', '["Squirtle"]');
+  insert.run(6, 3, 606, 'No history', '[]');
+  const priced = history();
+  Object.assign(priced.result[0].buckets[0], { lowSalePrice: '2', highSalePrice: '4' });
+  saveMonthHistory(store, 1, priced);
+  const extraSku = history({ sku: 106, quantity: 1, transactions: 1 });
+  Object.assign(extraSku.result[0].buckets[0], { lowSalePrice: '0.29', highSalePrice: '0.29' });
+  saveMonthHistory(store, 1, extraSku);
+  saveMonthHistory(store, 2, history({ sku: 102, quantity: 5, transactions: 4 }));
+  saveMonthHistory(store, 3, history({ sku: 103, condition: 'Unopened', quantity: 7, transactions: 6 }));
+  const multi = history({ sku: 104, quantity: 2, transactions: 1 });
+  Object.assign(multi.result[0].buckets[0], { lowSalePrice: '1.25', highSalePrice: '1.25' });
+  saveMonthHistory(store, 4, multi);
+  const missingPrice = history({ sku: 105, quantity: 4, transactions: 3 });
+  missingPrice.result[0].buckets[0].lowSalePrice = '9';
+  saveMonthHistory(store, 5, missingPrice);
+  const filters = { source: volumeSource, from: date, to: date };
+  const products = [...store.saleValueRows(filters, 'product-daily', true)];
+  assert.deepEqual(products.map(row => row.product_id), [1, 2, 3, 4, 5]);
+  assert.equal(products[0].units, 4);
+  assert.equal(products[0].sale_records, 3);
+  assert.equal(products[0].sales_lower_usd, 6.29);
+  assert.equal(products[0].sales_upper_usd, 12.29);
+  assert.equal(products[0].sales_usd, null);
+  assert.equal(products[3].sales_usd, 2.5);
+  assert.equal(products[4].unpriced_units, 4);
+  assert.equal(products[4].sales_lower_usd, null);
+  const sets = store.saleValueRows(filters, 'set-daily');
+  assert.deepEqual(sets.map(row => [row.category_id, row.group_id]), [[3, 604], [3, 605], [85, 604]]);
+  assert.equal(sets[0].units, 16);
+  assert.equal(sets[0].unpriced_units, 12);
+  assert.equal(sets[0].sales_usd, null);
+  const reconcile = rows => {
+    const total = store.saleValueRows(filters, 'daily')[0];
+    for (const field of ['sale_records', 'units', 'priced_units', 'unpriced_units',
+      'priced_sales_lower_usd', 'priced_sales_upper_usd']) {
+      assert.equal(rows.reduce((sum, row) => sum + Math.round(row[field] * 100), 0),
+        Math.round(total[field] * 100), field);
+    }
+  };
+  reconcile(products);
+  reconcile(sets);
+  const pokemon = store.saleValueRows(filters, 'pokemon');
+  const charizard = pokemon.find(row => row.pokemon_key === 'charizard');
+  assert.equal(charizard.units, 6);
+  assert.equal(charizard.sale_records, 4);
+  assert.equal(charizard.sales_lower_usd, 8.79);
+  assert.equal(pokemon.find(row => row.pokemon_key === 'mewtwo').sales_usd, 2.5);
+  assert.equal(pokemon.reduce((sum, row) => sum + row.units, 0), 12);
+  assert.equal(store.saleValueRows({ ...filters, kind: 'single' })[0].units, 15);
+  assert.deepEqual(store.saleValueRows({ ...filters, kind: 'sealed' }, 'product-daily')
+    .map(row => row.product_id), [3]);
+  assert.deepEqual(store.saleValueRows({ ...filters, kind: 'sealed' }, 'pokemon'), []);
+  assert.equal(store.saleValueRows({}, 'product-daily').length, 150);
+  assert.equal(store.saleValueRows({}, 'set-daily').length, 90);
+  assert.deepEqual(store.saleValueRows({ from: '2026-11-01' }, 'set-daily'), []);
+  const zero = store.saleValueRows({ from: '2026-10-30', to: '2026-10-30' }, 'set-daily');
+  assert.ok(zero.every(row => row.units === 0 && row.sale_records === 0 && row.sales_usd === 0));
+  Object.assign(multi.result[0].buckets[0], { quantitySold: '0', transactionCount: '0' });
+  saveMonthHistory(store, 4, multi);
+  reconcile(store.saleValueRows(filters, 'product-daily'));
+  reconcile(store.saleValueRows(filters, 'set-daily'));
+  assert.equal(store.saleValueRows(filters, 'set-daily').at(-1).sales_usd, 0);
+  assert.equal(store.saleValueRows(filters, 'pokemon')
+    .find(row => row.pokemon_key === 'mewtwo').units, 0);
+});
+
 test('legacy successful jobs are backfilled for prices once without reopening priced jobs', async t => {
   const store = setup(t), calls = [];
   const options = {now:()=>new Date('2026-10-31T12:00:00Z'),pause:async()=>{},log:()=>{},

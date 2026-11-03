@@ -14,8 +14,9 @@ const branch = 'main';
 const tag = 'daily-volume';
 const reportFiles = ['coverage.json', 'daily-volume.csv', 'pokemon-daily.csv', 'product-volume.csv',
   'daily-sales-value.csv', 'pokemon-sales-value.csv', 'product-sales-value.csv',
-  'daily-trading.csv', 'volume.svg'];
-const assetFiles = ['daily-sku-volume.csv.gz', 'pokemon-product-catalog.csv.gz', ...reportFiles];
+  'daily-trading.csv', 'set-daily-trading.csv', 'volume.svg'];
+const assetFiles = ['daily-sku-volume.csv.gz', 'pokemon-product-catalog.csv.gz',
+  'product-daily-trading.csv.gz', ...reportFiles];
 
 export function checkFreshness(coverage, now = new Date()) {
   for (const field of ['generated_at', 'last_successful_check_at']) {
@@ -71,13 +72,19 @@ export async function exportSnapshot(store, directory, now = new Date()) {
     };
     checkFreshness(coverage, now);
     const filters = { source: volumeSource };
-    const valueFields = ['units','priced_units','unpriced_units','priced_sales_lower_usd',
+    const valueFields = ['sale_records','units','priced_units','unpriced_units','priced_sales_lower_usd',
       'priced_sales_upper_usd','sales_lower_usd','sales_upper_usd','sales_usd'];
     for (const [group, fields] of [['daily',['date_source']],
       ['pokemon',['date_source','pokemon_key','pokemon']], ['product',['product_id','name']]]) {
       writeFileSync(join(directory, `${group}-sales-value.csv`),
         csv(store.saleValueRows(filters,group), [...fields,...valueFields]));
     }
+    writeFileSync(join(directory, 'set-daily-trading.csv'),
+      csv(store.saleValueRows(filters, 'set-daily'),
+        ['date_source','category_id','group_id','set_name',...valueFields]));
+    await pipeline(Readable.from(csvChunks(store.saleValueRows(filters, 'product-daily', true),
+      ['date_source','product_id','name','category_id','group_id','set_name',...valueFields])),
+    createGzip(), createWriteStream(join(directory, 'product-daily-trading.csv.gz')));
     writeFileSync(join(directory, 'daily-volume.csv'), csv(store.dailyRows(filters).map(row => ({
       ...row, date_source: row.name,
     })), ['date_source', 'sale_records', 'units', 'sales_usd', 'products_with_history', 'sku_buckets']));

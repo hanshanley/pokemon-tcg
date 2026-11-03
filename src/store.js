@@ -246,7 +246,7 @@ export class Store {
       ${where} GROUP BY s.product_id,s.date_source,s.kind`).run(...params);
   }
 
-  saleValueRows(filters, group = 'total') {
+  saleValueRows(filters, group = 'total', iterate = false) {
     if (this.salesSource(filters?.source) !== volumeSource) {
       throw new Error('Daily sale-price bounds require the tcgplayer-daily source.');
     }
@@ -258,10 +258,16 @@ export class Store {
         'GROUP BY s.date_source,lower(j.value)', 'ORDER BY s.date_source,priced_sales_upper_usd DESC,pokemon_key'],
       product: ['s.product_id,min(s.product_name) AS name,', 'GROUP BY s.product_id',
         'ORDER BY priced_sales_upper_usd DESC,s.product_id'],
+      'product-daily': [`s.date_source,s.product_id,min(s.product_name) AS name,
+        c.category_id,c.group_id,min(c.set_name) AS set_name,`,
+      'GROUP BY s.date_source,s.product_id,c.category_id,c.group_id', 'ORDER BY s.date_source,s.product_id'],
+      'set-daily': ['s.date_source,c.category_id,c.group_id,min(c.set_name) AS set_name,',
+        'GROUP BY s.date_source,c.category_id,c.group_id', 'ORDER BY s.date_source,c.category_id,c.group_id'],
     };
     if (!Object.hasOwn(groups, group)) throw new Error('Invalid sale-value grouping.');
     const [select, grouping, order] = groups[group];
-    return this.db.prepare(`SELECT ${select}
+    const statement = this.db.prepare(`SELECT ${select}
+      coalesce(sum(s.transaction_count),0) AS sale_records,
       coalesce(sum(s.quantity),0) AS units,
       coalesce(sum(p.priced_units),0) AS priced_units,
       coalesce(sum(s.quantity-coalesce(p.priced_units,0)),0) AS unpriced_units,
@@ -276,9 +282,12 @@ export class Store {
         THEN sum(coalesce(p.lower_cents,0))/100.0 END AS sales_usd
       FROM reported_product_volume s LEFT JOIN price_product_days p
         ON p.product_id=s.product_id AND p.date_source=s.date_source AND p.kind=s.kind
+      ${group === 'product-daily' || group === 'set-daily'
+        ? 'JOIN catalog_products c ON c.product_id=s.product_id' : ''}
       ${group === 'pokemon' ? ',json_each(s.pokemon) j' : ''}
       ${where} ${group === 'pokemon' ? "AND s.kind='single'" : ''}
-      ${grouping} ${order}`).all(...params);
+      ${grouping} ${order}`);
+    return iterate ? statement.iterate(...params) : statement.all(...params);
   }
 
   products() {
