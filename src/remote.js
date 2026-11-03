@@ -46,17 +46,24 @@ export async function collectRemote(store, {
   limit = 25000, signal, refreshCatalog = syncCatalog, createTransport = historyBrowser,
   pause = delay => sleep(delay, undefined, { signal }), log = console.log,
 } = {}) {
-  for (let attempt = 0; attempt < 3; attempt++) {
+  let failures = 0, remaining = limit;
+  const completed = () => store.db.prepare(`SELECT count(*) AS n FROM volume_jobs
+    WHERE status IN ('success','empty')`).get().n;
+  while (remaining > 0) {
     if (signal?.aborted) return null;
-    let transport;
+    let transport, requests = 0;
+    const before = completed();
     try {
       await refreshCatalog(store);
       if (signal?.aborted) return null;
       transport = await createTransport();
-      return await syncVolume(store, { ...transport, limit, signal, log });
+      return await syncVolume(store, { ...transport, limit: remaining, signal, log,
+        fetchHistory: id => { requests++; return transport.fetchHistory(id); } });
     } catch (error) {
       if (signal?.aborted) return null;
-      if ([401, 403].includes(error.status) || attempt === 2) throw error;
+      remaining -= requests;
+      failures = completed() > before ? 0 : failures + 1;
+      if ([401, 403].includes(error.status) || failures >= 3 || remaining <= 0) throw error;
       log(`Remote pass unavailable: ${error.message}`);
       if (transport) { await transport.close(); transport = null; }
       await pause(error.status === 429 ? 1800000 : 900000);

@@ -45,6 +45,9 @@ test('published reports and complete compressed downloads retain corrected count
     .includes('"2026-10-31","charizard","Charizard","5","3","","1"'));
   assert.ok(readFileSync(join(directory, 'product-volume.csv'), 'utf8').includes('"1","Charizard","3","5"'));
   assert.equal(store.db.prepare('SELECT count(*) AS n FROM daily_volume').get().n, 30);
+  assert.ok(readFileSync(join(directory, 'volume.svg'), 'utf8')
+    .includes('3 observed units and 5 reported transactions. Priced subset: $30 to $36'));
+  assert.ok(coverage.downloads.includes('volume.svg'));
 });
 
 test('publishing rejects absent or stale observations rather than producing fresh-looking zero sales', async t => {
@@ -122,4 +125,6 @@ if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
   const published = JSON.parse(git(['--git-dir', remote, 'show', 'main:reports/latest/coverage.json']));
   assert.equal(published.units, 3);
   assert.equal(published.sku_buckets, 30);
+  assert.ok(git(['--git-dir', remote, 'show', 'main:reports/latest/volume.svg'])
+    .includes('3 observed units and 2 reported transactions'));
 });

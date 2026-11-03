@@ -78,3 +78,72 @@ test('remote passes retry bootstrap transients but stop denied access without an
     createTransport: async () => { starts++; throw Object.assign(new Error('Denied'), { status: 403 }); } }), /Denied/);
   assert.equal(starts, 1);
 });
+
+test('productive remote recovery resets the failure budget without exceeding the request limit', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  for (let id = 1; id <= 12; id++) store.db.prepare(`INSERT INTO catalog_products VALUES
+    (?,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run(id);
+  let starts = 0, requests = 0, closed = 0;
+  const waits = [];
+  const state = await collectRemote(store, { limit: 15,
+    refreshCatalog: async () => {}, log: () => {},
+    pause: async delay => waits.push(delay),
+    createTransport: async () => {
+      const round = ++starts;
+      let calls = 0;
+      return {
+        fetchHistory: async () => {
+          requests++;
+          if (++calls > 1 && round <= 3) throw new Error('Temporary fetch failure');
+          return { status: 200, body: { count: 0 } };
+        },
+        close: async () => { closed++; },
+      };
+    } });
+  assert.equal(starts, 4);
+  assert.equal(closed, 4);
+  assert.equal(requests, 15);
+  assert.deepEqual(waits, [900000,900000,900000]);
+  assert.equal(state.products_without_history, 6);
+  assert.equal(state.status, 'paused');
+});
+
+test('remote recovery stops after three unproductive transports', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  for (let id = 1; id <= 3; id++) store.db.prepare(`INSERT INTO catalog_products VALUES
+    (?,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run(id);
+  let starts = 0, closed = 0;
+  const waits = [];
+  await assert.rejects(collectRemote(store, { refreshCatalog: async () => {}, log: () => {},
+    pause: async delay => waits.push(delay),
+    createTransport: async () => {
+      starts++;
+      return { fetchHistory: async () => { throw new Error('Temporary fetch failure'); },
+        close: async () => { closed++; } };
+    } }), /Temporary fetch failure/);
+  assert.equal(starts, 3);
+  assert.equal(closed, 3);
+  assert.deepEqual(waits, [900000,900000]);
+});
+
+test('a denial after committed progress still stops immediately without another transport', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  for (let id = 1; id <= 2; id++) store.db.prepare(`INSERT INTO catalog_products VALUES
+    (?,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run(id);
+  let starts = 0, closed = 0, requests = 0;
+  await assert.rejects(collectRemote(store, { limit: 10,
+    refreshCatalog: async () => {}, log: () => {},
+    pause: async () => { throw new Error('Must not retry a denial'); },
+    createTransport: async () => {
+      starts++;
+      return { fetchHistory: async () => ({ status: ++requests === 1 ? 200 : 403,
+        body: { count: 0 } }), close: async () => { closed++; } };
+    } }), /HTTP 403/);
+  assert.equal(starts, 1);
+  assert.equal(closed, 1);
+  assert.equal(requests, 2);
+  assert.equal(store.db.prepare("SELECT count(*) n FROM volume_jobs WHERE status='empty'").get().n, 1);
+});

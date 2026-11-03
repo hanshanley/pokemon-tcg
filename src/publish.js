@@ -7,12 +7,13 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
 import { Store, csv, volumeSource } from './store.js';
+import { writeVolumeFigure } from './figures.js';
 
 const repo = 'hanshanley/pokemon-tcg';
 const branch = 'main';
 const tag = 'daily-volume';
 const reportFiles = ['coverage.json', 'daily-volume.csv', 'pokemon-daily.csv', 'product-volume.csv',
-  'daily-sales-value.csv', 'pokemon-sales-value.csv', 'product-sales-value.csv'];
+  'daily-sales-value.csv', 'pokemon-sales-value.csv', 'product-sales-value.csv', 'volume.svg'];
 const assetFiles = ['daily-sku-volume.csv.gz', 'pokemon-product-catalog.csv.gz', ...reportFiles];
 
 export function checkFreshness(coverage, now = new Date()) {
@@ -99,6 +100,7 @@ export async function exportSnapshot(store, directory, now = new Date()) {
         'card_type', 'hp', 'pokemon', 'source_modified', 'source_build', 'url'])),
     createGzip(), createWriteStream(join(directory, 'pokemon-product-catalog.csv.gz')));
     writeFileSync(join(directory, 'coverage.json'), `${JSON.stringify(coverage, null, 2)}\n`);
+    writeVolumeFigure(directory);
     store.db.exec('COMMIT');
     return coverage;
   } catch (error) { store.db.exec('ROLLBACK'); throw error; }

@@ -15,8 +15,9 @@
     "publish": "node src/publish.js",
     "import": "node src/import.js",
     "individual": "node src/individual.js",
+    "figures": "node src/figures.js",
     "test": "node --test",
-    "check": "node --check src/store.js && node --check src/catalog.js && node --check src/import.js && node --check src/individual.js && node --check src/volume.js && node --check src/remote.js && node --check src/publish.js && node --check src/collector.js && node --check src/collect.js && node --check src/server.js && node --check public/app.js"
+    "check": "node --check src/store.js && node --check src/catalog.js && node --check src/import.js && node --check src/individual.js && node --check src/figures.js && node --check src/volume.js && node --check src/remote.js && node --check src/publish.js && node --check src/collector.js && node --check src/collect.js && node --check src/server.js && node --check public/app.js"
   },
   "dependencies": {
     "playwright": "^1.56.1"
