@@ -1,6 +1,6 @@
 {
   "source": "tcgplayer-daily",
-  "generated_at": "2026-11-03T20:06:03.236Z",
+  "generated_at": "2026-11-03T20:43:38.703Z",
   "sku_buckets": 5565153,
   "units": 3657000,
   "transactions": 2354938,
@@ -43,7 +43,6 @@
     "daily-sales-value.csv",
     "pokemon-sales-value.csv",
     "product-sales-value.csv",
-    "daily-trading.csv",
     "volume.svg"
   ]
 }
