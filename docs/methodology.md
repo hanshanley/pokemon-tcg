@@ -502,8 +502,8 @@ most recent observed dates as a table, including an incomplete current day.
 Bought and sold are opposite sides of the same matched trade, not additive
 quantities. Sealed units count products, not their enclosed cards.
 
-`npm run figures` regenerates `reports/latest/volume.svg` directly from the
-committed daily unit/value CSVs and coverage JSON. The remote publisher runs
+`npm run figures` regenerates `reports/latest/volume.svg` and `daily-trading.csv`
+directly from the committed daily unit/value CSVs and coverage JSON. The remote publisher runs
 the same renderer for every exported snapshot and publishes the SVG alongside
 the complete datasets. It does not fetch another source or estimate prices.
 
