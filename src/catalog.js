@@ -59,7 +59,8 @@ export function remapCatalogSpecies(store) {
 
 async function response(fetcher, url) {
   const result = await fetcher(url, { headers, signal: AbortSignal.timeout(30000) });
-  if (!result.ok) throw new Error(`Catalog request failed: HTTP ${result.status} (${url}).`);
+  if (!result.ok) throw Object.assign(
+    new Error(`Catalog request failed: HTTP ${result.status} (${url}).`), { status: result.status });
   return result;
 }
 

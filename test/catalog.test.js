@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '../src/store.js';
 import { syncCatalog, speciesForProduct, remapCatalogSpecies } from '../src/catalog.js';
+import { collectRemote } from '../src/remote.js';
 
 const species = ['charizard', 'trevenant', 'mew', 'mewtwo', 'nidoran-f', 'mr-mime', 'farfetchd'];
 const group = (id, category) => ({ groupId: id, categoryId: category, name: `Set ${id}` });
@@ -70,6 +71,30 @@ test('failed sync preserves completed group checkpoints and resumes without redo
     assert.ok(!retry.calls.some(url => url.endsWith('/3/604/products')));
     assert.ok(!retry.calls.some(url => url.startsWith('https://pokeapi.co/')));
   } finally { store.close(); }
+});
+
+test('catalog access denials stop remote collection without retrying or opening a storefront', async () => {
+  for (const status of [401, 403]) {
+    const store = new Store(':memory:');
+    let denied = 0;
+    try {
+      const data = fixture();
+      await assert.rejects(collectRemote(store, {
+        refreshCatalog: source => syncCatalog(source, options({
+          fetcher: async (url, opts) => {
+            if (!url.endsWith('/85/999/products')) return data.fetcher(url, opts);
+            denied++;
+            return new Response('Denied', { status });
+          },
+        })),
+        pause: async () => assert.fail('Must not retry a catalog access denial'),
+        createTransport: async () => assert.fail('Must not open a storefront after a catalog denial'),
+      }), { status });
+      assert.equal(denied, 1);
+      assert.equal(store.catalogSummary().last_run.status, 'failed');
+      assert.equal(store.catalogSummary().products, 3);
+    } finally { store.close(); }
+  }
 });
 
 test('products without optional attributes retain their identity without invented card metadata', async () => {
