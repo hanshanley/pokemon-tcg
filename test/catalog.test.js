@@ -72,6 +72,56 @@ test('failed sync preserves completed group checkpoints and resumes without redo
   } finally { store.close(); }
 });
 
+test('products without optional attributes retain their identity without invented card metadata', async () => {
+  const store = new Store(':memory:');
+  try {
+    const data = fixture();
+    const incoming = product(730120, 999, 85, 'Emboar');
+    delete incoming.extendedData;
+    const result = await syncCatalog(store, options({
+      fetcher: async (url, opts) => url.endsWith('/85/999/products')
+        ? Response.json({ success: true, totalItems: 2, errors: [], results: [
+          product(246708, 999, 85, 'Trevenant VMAX', hp), incoming,
+        ] })
+        : data.fetcher(url, opts),
+    }));
+    assert.equal(result.last_run.status, 'complete');
+    assert.equal(result.products, 5);
+    assert.equal(result.species_mapped_products, 2);
+    const row = store.catalogRows({ q: 'Emboar' }).products[0];
+    assert.equal(row.product_id, 730120);
+    assert.equal(row.category_id, 85);
+    assert.equal(row.group_id, 999);
+    assert.equal(row.name, 'Emboar');
+    for (const field of ['hp', 'card_type', 'number', 'rarity']) assert.equal(row[field], '');
+    assert.deepEqual(row.pokemon, []);
+    assert.equal(store.db.prepare('SELECT product_count FROM catalog_downloads WHERE group_id=999').get().product_count, 2);
+  } finally { store.close(); }
+});
+
+test('omitted attributes do not excuse invalid identities or malformed provided attributes', async () => {
+  for (const invalid of [{ categoryId: 3 }, { groupId: 604 }, { extendedData: null },
+    { extendedData: {} }]) {
+    const store = new Store(':memory:');
+    try {
+      const data = fixture();
+      const incoming = product(730120, 999, 85, 'Emboar');
+      delete incoming.extendedData;
+      Object.assign(incoming, invalid);
+      await assert.rejects(syncCatalog(store, options({
+        fetcher: async (url, opts) => url.endsWith('/85/999/products')
+          ? Response.json({ success: true, totalItems: 2, errors: [], results: [
+            product(246708, 999, 85, 'Trevenant VMAX', hp), incoming,
+          ] })
+          : data.fetcher(url, opts),
+      })), /Invalid product in group 999/);
+      assert.equal(store.catalogSummary().last_run.status, 'failed');
+      assert.equal(store.catalogSummary().products, 3);
+      assert.equal(store.db.prepare('SELECT count(*) AS n FROM catalog_downloads WHERE group_id=999').get().n, 0);
+    } finally { store.close(); }
+  }
+});
+
 test('incomplete counts and source rollover never report a complete catalog', async () => {
   const store = new Store(':memory:');
   try {

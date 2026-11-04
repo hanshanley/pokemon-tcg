@@ -148,17 +148,18 @@ export async function syncCatalog(store, {
         store.db.exec('BEGIN IMMEDIATE');
         try {
           for (const product of products) {
+            const attributes = product.extendedData === undefined ? [] : product.extendedData;
             if (!Number.isSafeInteger(product.productId) || product.productId < 1 ||
                 product.categoryId !== group.category || product.groupId !== group.groupId ||
                 typeof product.name !== 'string' || !product.name.trim() ||
-                seen.has(product.productId) || !Array.isArray(product.extendedData)) {
+                seen.has(product.productId) || !Array.isArray(attributes)) {
               throw new Error(`Invalid product in group ${group.groupId}.`);
             }
             seen.add(product.productId);
-            const attr = key => String(product.extendedData.find(item => item.name === key)?.value ?? '');
+            const attr = key => String(attributes.find(item => item.name === key)?.value ?? '');
             insert.run(product.productId, group.category, group.groupId, group.name, product.name,
               attr('Number'), attr('Rarity'), attr('Card Type'), attr('HP'),
-              JSON.stringify(matchSpecies(product.name, product.extendedData)),
+              JSON.stringify(matchSpecies(product.name, attributes)),
               String(product.modifiedOn ?? ''), build);
           }
           store.db.prepare('INSERT INTO catalog_downloads VALUES (?,?,?,?)')

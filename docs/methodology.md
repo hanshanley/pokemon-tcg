@@ -28,6 +28,9 @@ Legacy page-based sampling is disabled. The native daily-volume job is separate.
   it does not filter to currently available listings. Completeness means every
   group in that source snapshot was successfully downloaded and its product
   count reconciled, not that every historical marketplace product is guaranteed.
+  Products without optional card attributes retain their IDs and set membership,
+  but missing attributes stay blank and do not establish a Pokemon species.
+  Malformed provided attributes and mismatched product identities still fail sync.
 - Species: PokeAPI's species list, refreshed at most daily during catalog sync.
   Whole-name matching requires positive HP and excludes explicit trainer/energy
   types, avoiding sealed packaging and fossil/trainer name matches. English names, forms and named multi-Pokemon
