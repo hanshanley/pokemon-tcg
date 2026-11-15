@@ -181,7 +181,16 @@ validation to prevent competing uploads. Transient catalog/browser failures
 back off 15 minutes and rate limits 30 minutes. Three consecutive unproductive
 transports stop the pass; committed progress resets that recovery budget.
 Retries share the pass's product-request limit and four-hour deadline.
+Trailing failed products are retried within that same budget, up to three
+attempts per product; exhausted failures remain explicitly partial.
 Denied access stops the workflow without bypass attempts.
+
+The **Recover interrupted daily sales runner** workflow requeues failed jobs
+and their dependent passes only when GitHub's failure annotations explicitly
+identify lost hosted-runner communication. It allows at most two automatic
+reruns, only for the latest daily run on `main`, and never retries collection,
+access-denial, cancellation, or unclassified failures. Recovery restores the
+last published public checkpoint; work lost with a runner may need recollection.
 
 The GitHub Actions **Daily sales data freshness** workflow checks at 16:45 UTC
 and can be run manually. It fails if either publication or successful source

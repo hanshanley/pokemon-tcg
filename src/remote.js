@@ -57,8 +57,12 @@ export async function collectRemote(store, {
       await refreshCatalog(store);
       if (signal?.aborted) return null;
       transport = await createTransport();
-      return await syncVolume(store, { ...transport, limit: remaining, signal, log,
-        fetchHistory: id => { requests++; return transport.fetchHistory(id); } });
+      let state;
+      do {
+        state = await syncVolume(store, { ...transport, limit: remaining - requests, signal, log,
+          fetchHistory: id => { requests++; return transport.fetchHistory(id); } });
+      } while (state.status === 'paused' && requests < remaining && !signal?.aborted);
+      return state;
     } catch (error) {
       if (signal?.aborted) return null;
       remaining -= requests;

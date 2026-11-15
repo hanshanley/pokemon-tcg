@@ -128,6 +128,51 @@ test('remote recovery stops after three unproductive transports', async t => {
   assert.deepEqual(waits, [900000,900000]);
 });
 
+test('remote passes retry trailing product failures within the same request budget', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  store.db.prepare(`INSERT INTO catalog_products VALUES
+    (1,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run();
+  let requests = 0, closed = 0;
+  const options = {
+    refreshCatalog: async () => {}, log: () => {},
+    createTransport: async () => ({
+      fetchHistory: async () => {
+        if (++requests === 1) throw new Error('Temporary final-product failure');
+        return { status: 200, body: { count: 0 } };
+      },
+      close: async () => { closed++; },
+    }),
+  };
+  const first = await collectRemote(store, { ...options, limit: 1 });
+  assert.equal(first.status, 'paused');
+  assert.equal(requests, 1);
+  requests = 0;
+  const recovered = await collectRemote(store, { ...options, limit: 10 });
+  assert.equal(recovered.status, 'complete');
+  assert.equal(recovered.products_failed, 0);
+  assert.equal(requests, 2);
+  assert.equal(closed, 2);
+});
+
+test('persistent trailing failures exhaust three attempts without reporting completion', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  store.db.prepare(`INSERT INTO catalog_products VALUES
+    (1,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run();
+  let requests = 0;
+  const state = await collectRemote(store, {
+    limit: 10, refreshCatalog: async () => {}, log: () => {},
+    createTransport: async () => ({
+      fetchHistory: async () => { requests++; throw new Error('Invalid product history'); },
+      close: async () => {},
+    }),
+  });
+  assert.equal(requests, 3);
+  assert.equal(state.products_failed, 1);
+  assert.equal(state.status, 'partial');
+});
+
 test('a denial after committed progress still stops immediately without another transport', async t => {
   const store = new Store(':memory:');
   t.after(() => store.close());
