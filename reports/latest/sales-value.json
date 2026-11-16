@@ -4,7 +4,7 @@
   "alt": "Pokemon sales value from 2026-10-02 to 2026-11-16. Latest source date (Nov 16): $114.3k to $130k; partial day, shown separately. Catalog sweep: 63,923 / 63,923 products checked; 0 failed. 4 dates omitted for incomplete prices.",
   "source_sha256": {
     "daily-trading.csv": "b27d1fc673c15f103938de0a09aefdd5d7bb18a147a48e2207af4c6140f8af65",
-    "coverage.json": "fc736c2e1dcdfe923a7763fc41758ee85f717f22c5fb6dee583f3697005b4146"
+    "coverage.json": "950548aba14043c621142e6d871555df68ee7dcdd3f64c64b8c1757b9e5943c8"
   },
   "files_sha256": {
     "sales-value.svg": "24d447428ef20f2f06f41cee9de71c949c09859b22cdcfa3f64a89babf6b2091",
@@ -20,7 +20,7 @@
   "latest_sweep": {
     "date_utc": "2026-11-16",
     "status": "complete",
-    "updated_at": "2026-11-16T23:02:57.798Z",
+    "updated_at": "2026-11-16T23:09:46.660Z",
     "products_expected": 63923,
     "products_checked": 63923,
     "products_with_history": 49215,
