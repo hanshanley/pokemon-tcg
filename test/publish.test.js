@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,6 +22,28 @@ test('all-product verification rejects fresh but incomplete, failed, stale-date 
     { date_utc: '2026-11-15' }]) {
     assert.throws(() => checkCompleteSweep({ ...complete, sweep: { ...complete.sweep, ...change } }, now),
       /incomplete or failed/);
+  }
+});
+
+test('freshness and complete-sweep CLI checks work without installed rendering dependencies', t => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(),'pokemon-check-no-dependencies-')));
+  t.after(() => rmSync(directory,{ recursive: true, force: true }));
+  mkdirSync(join(directory,'src'));
+  writeFileSync(join(directory,'package.json'),'{"type":"module"}');
+  for (const name of ['publish.js','store.js','figures.js','sales-figure.js']) {
+    copyFileSync(new URL(`../src/${name}`,import.meta.url),join(directory,'src',name));
+  }
+  const now = new Date().toISOString();
+  const path = join(directory,'coverage.json');
+  writeFileSync(path,JSON.stringify({
+    source: 'tcgplayer-daily', generated_at: now, last_successful_check_at: now,
+    sku_buckets: 30, catalog_products: 1,
+    sweep: { date_utc: now.slice(0,10), status: 'complete', products_expected: 1,
+      products_checked: 1, products_with_history: 1, products_without_history: 0, products_failed: 0 },
+  }));
+  for (const flag of ['--check','--complete']) {
+    assert.match(execFileSync(process.execPath,[join(directory,'src/publish.js'),flag,path],
+      { encoding: 'utf8' }),/passed its checks/);
   }
 });
 

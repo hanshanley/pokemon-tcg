@@ -2,7 +2,6 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { chromium } from 'playwright';
 import { dailyCsv, writeVolumeFigure } from './figures.js';
 import { csv } from './store.js';
 
@@ -135,6 +134,7 @@ export async function writeSalesFigure(directory) {
   const figure = salesFigure(rows,coverage);
   const variants = [['sales-value','#F7F5F0'],['sales-value-moe','#F2EFE7']];
   const files = [];
+  const { chromium } = await import('playwright');
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1200, height: 800 }, deviceScaleFactor: 1 });

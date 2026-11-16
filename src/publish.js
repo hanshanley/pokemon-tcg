@@ -195,6 +195,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const dir = resolve(process.env.DATA_DIR ?? 'data');
       if (!statSync(join(dir, 'sales.sqlite')).size) throw new Error('Sales database is empty.');
       await publishGitHub(dir);
-    } else throw new Error('Usage: npm run publish -- [--check [COVERAGE_JSON]]');
+    } else throw new Error('Usage: npm run publish -- [--check [COVERAGE_JSON] | --complete [COVERAGE_JSON]]');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
