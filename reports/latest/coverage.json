@@ -1,6 +1,6 @@
 {
   "source": "tcgplayer-daily",
-  "generated_at": "2026-11-16T22:43:52.860Z",
+  "generated_at": "2026-11-16T22:50:48.228Z",
   "sku_buckets": 8559919,
   "units": 5454517,
   "transactions": 3529825,
@@ -13,7 +13,7 @@
   "sweep": {
     "date_utc": "2026-11-16",
     "status": "complete",
-    "updated_at": "2026-11-16T22:41:08.895Z",
+    "updated_at": "2026-11-16T22:48:07.151Z",
     "products_expected": 63923,
     "products_checked": 63923,
     "products_with_history": 49215,
