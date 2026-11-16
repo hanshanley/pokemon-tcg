@@ -6,6 +6,11 @@ import { Store } from './store.js';
 import { syncCatalog } from './catalog.js';
 import { historyBrowser, syncVolume } from './volume.js';
 
+export function retryFailedJobs(store, date) {
+  return store.db.prepare(`UPDATE volume_jobs SET status='pending',attempts=0,warning=''
+    WHERE date_utc=? AND status='failed'`).run(date).changes;
+}
+
 export function publicCheckpoint(source, destination) {
   if (resolve(source) === resolve(destination)) throw new Error('Checkpoint must not overwrite its source.');
   if (existsSync(destination)) throw new Error('Public checkpoint destination must be a new file.');
@@ -60,17 +65,28 @@ export async function collectRemote(store, {
       let state;
       do {
         state = await syncVolume(store, { ...transport, limit: remaining - requests, signal, log,
-          fetchHistory: id => { requests++; return transport.fetchHistory(id); } });
+          fetchHistory: async id => {
+            requests++;
+            try { return await transport.fetchHistory(id); }
+            catch (error) {
+              if (error.status == null) error.code = 'HISTORY_TRANSPORT';
+              throw error;
+            }
+          } });
       } while (state.status === 'paused' && requests < remaining && !signal?.aborted);
       return state;
     } catch (error) {
       if (signal?.aborted) return null;
       remaining -= requests;
-      failures = completed() > before ? 0 : failures + 1;
-      if ([401, 403].includes(error.status) || failures >= 3 || remaining <= 0) throw error;
+      const productive = completed() > before;
+      failures = productive ? 0 : failures + 1;
+      if ([401, 403].includes(error.status) || failures >= 3) throw error;
+      if (remaining <= 0) {
+        return store.db.prepare('SELECT * FROM volume_runs ORDER BY date_utc DESC LIMIT 1').get();
+      }
       log(`Remote pass unavailable: ${error.message}`);
       if (transport) { await transport.close(); transport = null; }
-      await pause(error.status === 429 ? 1800000 : 900000);
+      await pause(error.status === 429 ? 1800000 : productive ? 15000 : 900000);
     } finally { if (transport) await transport.close(); }
   }
 }
@@ -85,8 +101,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (args.length === 3 && args[0] === '--checkpoint') {
       console.log(JSON.stringify(publicCheckpoint(args[1], args[2])));
     } else {
-      if (args.length !== 4 || args[0] !== '--limit' || args[2] !== '--minutes') {
-        throw new Error('Usage: node src/remote.js --limit PRODUCTS --minutes MINUTES | --checkpoint SOURCE DESTINATION');
+      if (![4,5].includes(args.length) || args[0] !== '--limit' || args[2] !== '--minutes' ||
+          args.length === 5 && args[4] !== '--retry-failed') {
+        throw new Error('Usage: node src/remote.js --limit PRODUCTS --minutes MINUTES [--retry-failed] | --checkpoint SOURCE DESTINATION');
       }
       const limit = Number(args[1]), minutes = Number(args[3]);
       if (!Number.isSafeInteger(limit) || limit < 1 ||
@@ -94,6 +111,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         throw new Error('Provide a positive product limit and 1-240 minutes.');
       }
       store = new Store(resolve(process.env.DATA_DIR ?? 'data', 'sales.sqlite'));
+      if (args[4]) console.log(`Requeued ${retryFailedJobs(store,
+        new Date().toISOString().slice(0,10))} failed products for a bounded fresh validation.`);
       timer = setTimeout(() => signal.abort(), minutes * 60000);
       console.log(JSON.stringify(await collectRemote(store, { limit, signal: signal.signal }), null, 2));
     }

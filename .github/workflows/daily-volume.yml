@@ -9,6 +9,10 @@ on:
         description: Maximum products per pass; use 100 for a small validation
         type: number
         default: 25000
+      retry_failed:
+        description: Revalidate exhausted failed products once (does not change source validation)
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -22,6 +26,7 @@ jobs:
     uses: ./.github/workflows/remote-volume-pass.yml
     with:
       max_products: ${{ format('{0}', inputs.max_products || 25000) }}
+      retry_failed: ${{ inputs.retry_failed || false }}
   second:
     needs: first
     uses: ./.github/workflows/remote-volume-pass.yml
@@ -32,3 +37,18 @@ jobs:
     uses: ./.github/workflows/remote-volume-pass.yml
     with:
       max_products: ${{ format('{0}', inputs.max_products || 25000) }}
+  verify:
+    needs: third
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Require today's entire catalog, not just a successful publication
+        run: |
+          git fetch --depth=1 origin main
+          git show FETCH_HEAD:reports/latest/coverage.json > "$RUNNER_TEMP/coverage.json"
+          node src/publish.js --complete "$RUNNER_TEMP/coverage.json"

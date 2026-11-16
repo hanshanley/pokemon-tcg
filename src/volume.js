@@ -173,8 +173,15 @@ export async function syncVolume(store, {
         saveMonthHistory(store, job.product_id, response.body, now().toISOString(), date);
         consecutiveFailures = 0;
       } catch (error) {
+        if (error.code === 'HISTORY_TRANSPORT') {
+          store.db.prepare(`UPDATE volume_jobs SET status='pending',attempts=attempts-1,warning=?
+            WHERE date_utc=? AND product_id=?`).run(error.message, date, job.product_id);
+          log(`History transport unavailable for product ${job.product_id}: ${error.message}`);
+          throw error;
+        }
         store.db.prepare(`UPDATE volume_jobs SET status='failed',fetched_at=?,warning=?
           WHERE date_utc=? AND product_id=?`).run(now().toISOString(), error.message, date, job.product_id);
+        log(`History unavailable for product ${job.product_id}: ${error.message}`);
         consecutiveFailures++;
         if ([401, 403, 429].includes(error.status) || consecutiveFailures >= 3) throw error;
       }
@@ -188,7 +195,7 @@ export async function syncVolume(store, {
       WHERE date_utc=? AND status IN ('pending','failed') AND attempts<3`).get(date).n;
     return progress(unfinished ? 'paused' : state.products_failed ? 'partial' : 'complete');
   } catch (error) {
-    progress('failed', error.message);
+    progress(error.code === 'HISTORY_TRANSPORT' ? 'paused' : 'failed', error.message);
     throw error;
   }
 }

@@ -6,6 +6,9 @@ on:
       max_products:
         required: true
         type: string
+      retry_failed:
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -17,6 +20,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       MAX_PRODUCTS: ${{ inputs.max_products }}
+      RETRY_FAILED: ${{ inputs.retry_failed }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -34,7 +38,10 @@ jobs:
           gzip -dc data/remote-state.sqlite.gz > data/sales.sqlite
           node --input-type=module -e "import {Store} from './src/store.js'; const s=new Store('data/sales.sqlite'); const result=s.db.prepare('PRAGMA quick_check').get(); s.close(); if(Object.values(result)[0]!=='ok') throw new Error('Invalid remote checkpoint'); console.log(result);"
       - name: Collect native daily history without a Mac
-        run: xvfb-run -a node src/remote.js --limit "$MAX_PRODUCTS" --minutes 240
+        run: |
+          args=()
+          if [[ "$RETRY_FAILED" == "true" ]]; then args+=(--retry-failed); fi
+          xvfb-run -a node src/remote.js --limit "$MAX_PRODUCTS" --minutes 240 "${args[@]}"
       - name: Persist a public-only checkpoint even after a collection failure
         id: checkpoint
         if: ${{ always() && !cancelled() && steps.restore.outcome == 'success' }}

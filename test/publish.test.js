@@ -8,7 +8,22 @@ import { pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { Store } from '../src/store.js';
 import { saveMonthHistory } from '../src/volume.js';
-import { exportSnapshot, checkFreshness, publishGitHub } from '../src/publish.js';
+import { exportSnapshot, checkFreshness, checkCompleteSweep, publishGitHub } from '../src/publish.js';
+
+test('all-product verification rejects fresh but incomplete, failed, stale-date and inconsistent sweeps', () => {
+  const now = new Date('2026-11-16T18:00:00Z');
+  const complete = { source: 'tcgplayer-daily', sku_buckets: 30, catalog_products: 10,
+    generated_at: now.toISOString(), last_successful_check_at: now.toISOString(),
+    sweep: { date_utc: '2026-11-16', status: 'complete', products_expected: 10,
+      products_checked: 10, products_with_history: 7, products_without_history: 3, products_failed: 0 } };
+  assert.doesNotThrow(() => checkCompleteSweep(complete, now));
+  for (const change of [{ status: 'failed' }, { status: 'paused' }, { products_checked: 9 },
+    { products_failed: 1 }, { products_expected: 9 }, { products_with_history: 6 },
+    { date_utc: '2026-11-15' }]) {
+    assert.throws(() => checkCompleteSweep({ ...complete, sweep: { ...complete.sweep, ...change } }, now),
+      /incomplete or failed/);
+  }
+});
 
 test('published reports and complete compressed downloads retain corrected counts and zero buckets', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'pokemon-publish-'));

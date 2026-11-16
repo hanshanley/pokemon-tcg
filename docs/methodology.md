@@ -177,13 +177,22 @@ npm run publish -- --check coverage.json
 The GitHub reports and release downloads are the remotely updated dataset;
 `npm start` remains a local dashboard over that machine's local database.
 The old local collection/publishing LaunchAgents are disabled after remote
-validation to prevent competing uploads. Transient catalog/browser failures
-back off 15 minutes and rate limits 30 minutes. Three consecutive unproductive
+validation to prevent competing uploads. Unproductive catalog/browser failures
+back off 15 minutes and rate limits 30 minutes. Browser transport recovery after
+committed progress waits 15 seconds instead of spending the pass on idle time.
+Transport failures leave the product pending without consuming its three
+data-validation attempts; requests still count against the pass limit.
+Three consecutive unproductive
 transports stop the pass; committed progress resets that recovery budget.
 Retries share the pass's product-request limit and four-hour deadline.
 Trailing failed products are retried within that same budget, up to three
 attempts per product; exhausted failures remain explicitly partial.
 Denied access stops the workflow without bypass attempts.
+The final workflow check requires today's entire catalog and zero product
+failures, so publishing retained partial data cannot make an incomplete run green.
+For a diagnosed transient failure left by an older collector, a manual dispatch
+with `retry_failed=true` requeues that day's failed products once. Every fetched
+response is still validated normally; successful products are not reopened.
 
 The **Recover interrupted daily sales runner** workflow requeues failed jobs
 and their dependent passes only when GitHub's failure annotations explicitly

@@ -30,6 +30,18 @@ export function checkFreshness(coverage, now = new Date()) {
   }
 }
 
+export function checkCompleteSweep(coverage, now = new Date()) {
+  checkFreshness(coverage, now);
+  const sweep = coverage.sweep;
+  if (!sweep || sweep.date_utc !== now.toISOString().slice(0,10) ||
+      sweep.status !== 'complete' || sweep.products_failed !== 0 ||
+      sweep.products_checked !== sweep.products_expected ||
+      sweep.products_with_history + sweep.products_without_history !== sweep.products_expected ||
+      sweep.products_expected !== coverage.catalog_products) {
+    throw new Error('Catalog sweep is incomplete or failed; retained data is published but not an all-product success.');
+  }
+}
+
 function* csvChunks(rows, fields) {
   const header = csv([], fields);
   yield header;
@@ -171,9 +183,10 @@ export async function publishGitHub(dataDirectory) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const args = process.argv.slice(2);
-    if (args[0] === '--check' && args.length <= 2) {
-      checkFreshness(JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8')));
-      console.log('Daily GitHub data is fresh; marketplace completeness remains unverified.');
+    if (['--check','--complete'].includes(args[0]) && args.length <= 2) {
+      (args[0] === '--complete' ? checkCompleteSweep : checkFreshness)(
+        JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8')));
+      console.log('Daily GitHub data passed its checks; marketplace completeness remains unverified.');
     } else if (!args.length) {
       const dir = resolve(process.env.DATA_DIR ?? 'data');
       if (!statSync(join(dir, 'sales.sqlite')).size) throw new Error('Sales database is empty.');
