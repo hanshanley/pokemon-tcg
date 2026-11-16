@@ -8,13 +8,16 @@ import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
 import { Store, csv, volumeSource } from './store.js';
 import { writeVolumeFigure } from './figures.js';
+import { writeSalesFigure } from './sales-figure.js';
 
 const repo = 'hanshanley/pokemon-tcg';
 const branch = 'main';
 const tag = 'daily-volume';
 const reportFiles = ['coverage.json', 'daily-volume.csv', 'pokemon-daily.csv', 'product-volume.csv',
   'daily-sales-value.csv', 'pokemon-sales-value.csv', 'product-sales-value.csv',
-  'daily-trading.csv', 'set-daily-trading.csv', 'volume.svg'];
+  'daily-trading.csv', 'set-daily-trading.csv', 'volume.svg',
+  'sales-value.svg','sales-value.png','sales-value-moe.svg','sales-value-moe.png',
+  'sales-value.csv','sales-value.json'];
 const assetFiles = ['daily-sku-volume.csv.gz', 'pokemon-product-catalog.csv.gz',
   'product-daily-trading.csv.gz', ...reportFiles];
 
@@ -121,6 +124,7 @@ export async function exportSnapshot(store, directory, now = new Date()) {
     createGzip(), createWriteStream(join(directory, 'pokemon-product-catalog.csv.gz')));
     writeFileSync(join(directory, 'coverage.json'), `${JSON.stringify(coverage, null, 2)}\n`);
     writeVolumeFigure(directory);
+    await writeSalesFigure(directory);
     store.db.exec('COMMIT');
     return coverage;
   } catch (error) { store.db.exec('ROLLBACK'); throw error; }

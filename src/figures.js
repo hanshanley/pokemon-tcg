@@ -24,7 +24,7 @@ export function dailyTradingRows(daily, values) {
 }
 
 // These two exported CSVs contain only quoted date labels and numeric fields.
-function dailyCsv(path) {
+export function dailyCsv(path) {
   const [header, ...lines] = readFileSync(path, 'utf8').trimEnd().split(/\r?\n/);
   const cells = line => line.split(',').map(cell => {
     if (!/^"[\w.-]*"$/.test(cell)) throw new Error('Unexpected daily report CSV field.');

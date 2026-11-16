@@ -18,16 +18,19 @@ The catalog covers English and Japanese products; **sales coverage is still
 partial, not a certified total for the whole marketplace**.
 
 <p align="center">
-  <img src="reports/latest/volume.svg" width="1200" alt="Observed daily units and sale-value bounds, with price coverage and collection status">
+  <img src="reports/latest/sales-value.svg" width="1200" alt="Daily Pokemon sales value: actual low-high price bounds, with the partial latest source day shown separately">
 </p>
 
-The blue bars show reported units. The green band shows dollar bounds for
-**only the units with actual sale prices**; it is not estimated total revenue.
-Coverage varies by date, and recent dates may be incomplete.
+The terracotta band shows daily item-value bounds from actual low/high SKU sale
+prices, **not exact revenue or a confidence interval**. The latest partial day is
+shown separately in blue, not connected as a misleading drop in sales. Dates
+with missing prices are omitted from the line, not treated as zero.
 
-The table below the charts lists **units bought/sold, transaction counts and
-item-dollar value for each recent day**. The [complete daily trading CSV](reports/latest/daily-trading.csv)
-puts these figures and price coverage together for every retained date.
+Download the [PNG](reports/latest/sales-value.png), [exact chart data](reports/latest/sales-value.csv),
+or [caption, alt text and source hashes](reports/latest/sales-value.json).
+The [quantity overview](reports/latest/volume.svg) includes a recent-day table.
+The [complete daily trading CSV](reports/latest/daily-trading.csv) lists **units
+bought/sold, transaction counts and item-dollar value** for every retained date.
 A sale and its matching purchase are one trade, not two volumes; a sealed
 product counts as one unit, not the number of cards inside.
 

@@ -75,6 +75,11 @@ test('published reports and complete compressed downloads retain corrected count
   assert.ok(coverage.downloads.includes('daily-trading.csv'));
   assert.ok(coverage.downloads.includes('product-daily-trading.csv.gz'));
   assert.ok(coverage.downloads.includes('set-daily-trading.csv'));
+  for (const name of ['sales-value.svg','sales-value.png','sales-value-moe.svg',
+    'sales-value-moe.png','sales-value.csv','sales-value.json']) {
+    assert.ok(coverage.downloads.includes(name));
+    assert.ok(readFileSync(join(directory,name)).length > 0);
+  }
   const [header, ...trading] = readFileSync(join(directory, 'daily-trading.csv'), 'utf8')
     .trimEnd().split(/\r?\n/).map(line => line.split(',').map(cell => JSON.parse(cell)));
   assert.equal(trading.length, 30);
@@ -175,6 +180,13 @@ if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
     .trimEnd().split(/\r?\n/).length, 31);
   assert.ok(JSON.parse(readFileSync(process.env.TEST_PUBLICATION_ASSETS, 'utf8'))
     .some(path => path.endsWith('/product-daily-trading.csv.gz')));
+  const assets = JSON.parse(readFileSync(process.env.TEST_PUBLICATION_ASSETS,'utf8'));
+  const tracked = git(['--git-dir',remote,'ls-tree','-r','--name-only','main']).split('\n');
+  for (const name of ['sales-value.svg','sales-value.png','sales-value-moe.svg',
+    'sales-value-moe.png','sales-value.csv','sales-value.json']) {
+    assert.ok(assets.some(path => path.endsWith(`/${name}`)));
+    assert.ok(tracked.includes(`reports/latest/${name}`));
+  }
   assert.ok(!git(['--git-dir', remote, 'ls-tree', '-r', '--name-only', 'main'])
     .includes('product-daily-trading.csv.gz'));
 });

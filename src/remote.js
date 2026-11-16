@@ -82,6 +82,7 @@ export async function collectRemote(store, {
       failures = productive ? 0 : failures + 1;
       if ([401, 403].includes(error.status) || failures >= 3) throw error;
       if (remaining <= 0) {
+        if (error.status === 429) throw error;
         return store.db.prepare('SELECT * FROM volume_runs ORDER BY date_utc DESC LIMIT 1').get();
       }
       log(`Remote pass unavailable: ${error.message}`);

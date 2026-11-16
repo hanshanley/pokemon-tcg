@@ -159,6 +159,25 @@ zero buckets remain represented; products or dates with no retained history
 are omitted, not filled with zero. These reports use native source dates and
 exclude the separate, overlapping individual-sale archive.
 
+### Monetary time-series chart
+
+`sales-value.svg` and `sales-value.png` plot the observed daily low/high
+item-dollar bounds. Only dates with prices for **all observed units** enter the
+terracotta historical band; missing/partially priced dates remain gaps.
+Explicit observed zero days remain zero. The same-day estimate is a separate
+blue interval, not a joined line implying a completed-day decline. The source
+timezone is unpublished, so the latest source date at or after the UTC check
+date is conservatively considered partial. These are changing historical
+coverage cohorts, not certified whole-market receipts or a confidence interval.
+
+The `-moe` SVG/PNG pair changes only the paper background. `sales-value.csv`
+retains every daily input, its plot status and the plotted bounds, including
+omitted dates. `sales-value.json` contains the caption, alt text and SHA-256
+hashes of both complete source files and every chart/data output. All six
+assets are committed and included in the rolling release. `npm run figures`
+regenerates both chart bundles from `reports/latest` without a sales database;
+it requires Playwright Chromium, also installed by the remote workflow.
+
 `remote-state.sqlite.gz` is a separately constructed **public-only checkpoint**,
 containing catalog/species metadata, native daily buckets and resumable queue
 state. Local transactions, watchlist records and diagnostics are excluded.

@@ -1,0 +1,31 @@
+{
+  "title": "Daily Pokemon sales value on TCGplayer",
+  "caption": "Daily observed Pokemon item-value bounds on TCGplayer, across English and Japanese catalog products. Bounds sum SKU-day quantities multiplied by actual low/high unit sale prices; they are not a confidence interval or exact revenue. Shipping and tax are excluded. Dates with incomplete price coverage are omitted from the line but retained in the CSV. The latest source day is shown separately when still in progress. Catalog and historical sales coverage are not certified marketplace totals.",
+  "alt": "Pokemon sales value from 2026-10-02 to 2026-11-16. Latest source date (Nov 16): $106.4k to $121.5k; partial day, shown separately. Catalog sweep: 55,297 / 63,890 products checked; 3 failed. 4 dates omitted for incomplete prices.",
+  "source_sha256": {
+    "daily-trading.csv": "4a5d6fae51a4e8f0c28c8aaff3cd94d4b376b982ca5de669fe88511e8c3b9865",
+    "coverage.json": "0c4f7b66f80b64a9eaaf8b7ab9603212ca39aa6147db3219b39e3501b5b6b9c6"
+  },
+  "files_sha256": {
+    "sales-value.svg": "a0fba6355be052fb65e3ba49756029bf0e57e2ba53d33a9f23d5a36558d73c72",
+    "sales-value.png": "5eabe648ebe6edf0e49bcb704a4723729528cdeed21cd4c432d4fc352c049513",
+    "sales-value-moe.svg": "bc43b2c95fd36d526bf5e85d839b36f30885a87610b6733ff9b6c71911eb5e25",
+    "sales-value-moe.png": "32952c5538b7ab2191a9971ea060904e28bdccaad336911d0285c93db1a2a73e",
+    "sales-value.csv": "d92931a64a4963e3b065a44709e538864975e9d192a529da27ba30bcd5dd67eb"
+  },
+  "backgrounds": {
+    "sales-value": "#F7F5F0",
+    "sales-value-moe": "#F2EFE7"
+  },
+  "latest_sweep": {
+    "date_utc": "2026-11-16",
+    "status": "failed",
+    "updated_at": "2026-11-16T18:41:27.704Z",
+    "products_expected": 63890,
+    "products_checked": 55297,
+    "products_with_history": 44255,
+    "products_without_history": 11039,
+    "products_failed": 3
+  },
+  "rows": 46
+}

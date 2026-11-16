@@ -209,6 +209,31 @@ test('explicit failed-product repair resets only the requested date and preserve
   ]);
 });
 
+test('rate limits retain their thirty-minute backoff even after productive progress', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  for (let id = 1; id <= 2; id++) store.db.prepare(`INSERT INTO catalog_products VALUES
+    (?,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run(id);
+  const waits = [];
+  let requests = 0;
+  const options = { limit: 10, refreshCatalog: async () => {}, log: () => {},
+    pause: async delay => waits.push(delay),
+    createTransport: async () => ({ fetchHistory: async () => ++requests === 2 ?
+      { status: 429, body: null } : { status: 200, body: { count: 0, result: [] } },
+    close: async () => {} }) };
+  const state = await collectRemote(store,options);
+  assert.equal(state.status,'complete');
+  assert.deepEqual(waits,[1800000]);
+  await assert.rejects(collectRemote(store,{ ...options, limit: 1,
+    createTransport: async () => ({ fetchHistory: async () => ({ status: 429, body: null }),
+      close: async () => {} }),
+    refreshCatalog: async () => {
+      store.db.exec("UPDATE volume_jobs SET status='pending',attempts=0");
+    },
+  }),error => error.status === 429);
+  assert.deepEqual(waits,[1800000]);
+});
+
 test('a denial after committed progress still stops immediately without another transport', async t => {
   const store = new Store(':memory:');
   t.after(() => store.close());
