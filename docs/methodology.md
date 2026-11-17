@@ -115,6 +115,11 @@ published products. Scheduled GitHub starts can be delayed.
 Current-sweep counts exclude retired catalog IDs, while their saved sales and
 past queue records remain retained. A catalog change cannot silently drop a new
 product from the queue or count a retired failure against current coverage.
+The final workflow verification and daily health check also download the public
+checkpoint and open it read-only. They reconcile every current product ID with
+a successful or explicitly empty queue result, fresh matching history/price
+checks, saved bucket counts, the catalog build and published totals. A complete
+count in `coverage.json` alone is not enough to pass.
 It runs three sequential passes of up to 25,000 products each. Each pass
 has a four-hour collection deadline, persists its checkpoint, and publishes
 complete aggregate CSVs and coverage to the

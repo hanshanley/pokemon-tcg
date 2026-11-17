@@ -4,11 +4,12 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSyn
 import { execFileSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { Store } from '../src/store.js';
-import { saveMonthHistory } from '../src/volume.js';
-import { exportSnapshot, checkFreshness, checkCompleteSweep, needsDailyCollection, publishGitHub } from '../src/publish.js';
+import { saveMonthHistory, syncVolume } from '../src/volume.js';
+import { exportSnapshot, checkFreshness, checkCompleteSweep, checkCompleteDatabase,
+  needsDailyCollection, publishGitHub } from '../src/publish.js';
 
 test('scheduled catch-up skips only a fresh complete sweep of the current source catalog', async () => {
   const now = new Date('2026-11-17T18:00:00Z');
@@ -47,6 +48,9 @@ test('all-product verification rejects fresh but incomplete, failed, stale-date 
     assert.throws(() => checkCompleteSweep({ ...complete, sweep: { ...complete.sweep, ...change } }, now),
       /incomplete or failed/);
   }
+  assert.throws(() => checkCompleteSweep({ ...complete, catalog_products: 0,
+    sweep: { ...complete.sweep, products_expected: 0, products_checked: 0,
+      products_with_history: 0, products_without_history: 0 } },now),/incomplete or failed/);
 });
 
 test('freshness and complete-sweep CLI checks work without installed rendering dependencies', t => {
@@ -71,6 +75,65 @@ test('freshness and complete-sweep CLI checks work without installed rendering d
   }
   assert.equal(execFileSync(process.execPath,
     [join(directory,'src/publish.js'),'--needs-collection',path],{ encoding: 'utf8' }).trim(),'true');
+});
+
+test('complete checkpoint verification checks every product and its saved rows, not just coverage counts', async t => {
+  const directory = realpathSync(mkdtempSync(join(tmpdir(),'pokemon-checkpoint-complete-')));
+  const path = join(directory,'public.sqlite'), store = new Store(path);
+  t.after(() => { store.close(); rmSync(directory,{ recursive: true }); });
+  for (let id = 1; id <= 4; id++) store.db.prepare(`INSERT INTO catalog_products VALUES
+    (?,3,604,'Set','Charizard','','','','','["Charizard"]','','build',?)`).run(id,id === 4 ? 0 : 1);
+  store.db.prepare(`INSERT INTO catalog_runs(source_build,started_at,status)
+    VALUES ('build',?,'complete')`).run(new Date().toISOString());
+  const now = new Date();
+  await syncVolume(store,{ pause: async () => {}, log: () => {}, now: () => now,
+    fetchHistory: async id => ({ status: 200, body: id === 3 ? { count: 0 } : {
+      count: 1, result: [{ skuId: 100 + id, condition: 'Near Mint', variant: 'Normal',
+        language: 'English', buckets: Array.from({ length: 30 },(_,index) => ({
+          bucketStartDate: new Date(now - index * 86400000).toISOString().slice(0,10),
+          quantitySold: index === 0 ? 2 : 0, transactionCount: index === 0 ? 1 : 0,
+          lowSalePrice: '10', highSalePrice: '12',
+        })) }],
+    } }),
+  });
+  store.db.prepare(`INSERT INTO volume_jobs(date_utc,product_id,status,attempts)
+    VALUES (?,4,'failed',3)`).run(now.toISOString().slice(0,10));
+  const coverage = {
+    source: 'tcgplayer-daily', generated_at: now.toISOString(), last_successful_check_at: now.toISOString(),
+    sku_buckets: 60, units: 4, transactions: 2, catalog_products: 3, catalog_source_build: 'build',
+    sweep: { ...store.db.prepare('SELECT * FROM volume_runs').get() },
+  };
+  delete coverage.sweep.warning;
+  const valid = checkCompleteDatabase(store.db,coverage,now);
+  assert.equal(valid.products_checked,3);
+  assert.equal(valid.products_without_history,1);
+  assert.equal(valid.inconsistent_products,0);
+  const coveragePath = join(directory,'coverage.json');
+  writeFileSync(coveragePath,JSON.stringify(coverage));
+  assert.match(execFileSync(process.execPath,[
+    fileURLToPath(new URL('../src/publish.js',import.meta.url)),'--complete',coveragePath,path,
+  ],{ encoding: 'utf8' }),/"inconsistent_products":0/);
+  for (const [sql, message] of [
+    ["DELETE FROM volume_jobs WHERE product_id=2", /Not every current catalog product/],
+    ["UPDATE volume_jobs SET status='pending' WHERE product_id=2", /Not every current catalog product/],
+    ["UPDATE volume_jobs SET fetched_at='2000-01-01T00:00:00.000Z' WHERE product_id=2", /fresh saved history/],
+    ["DELETE FROM price_checks WHERE product_id=3", /fresh saved history/],
+    ["DELETE FROM daily_sale_prices WHERE product_id=2; DELETE FROM daily_volume WHERE product_id=2", /fresh saved history/],
+    ["DELETE FROM daily_sale_prices WHERE product_id=2", /fresh saved history/],
+    ["UPDATE daily_volume SET quantity=quantity+1 WHERE product_id=2", /daily totals/],
+    ["UPDATE catalog_runs SET source_build='other'", /catalog build/],
+    ["UPDATE volume_runs SET products_checked=2", /saved catalog sweep/],
+  ]) {
+    store.db.exec('SAVEPOINT mutation');
+    try {
+      store.db.exec(sql);
+      assert.throws(() => checkCompleteDatabase(store.db,coverage,now),message);
+    } finally { store.db.exec('ROLLBACK TO mutation; RELEASE mutation'); }
+  }
+  store.db.exec('DELETE FROM volume_jobs WHERE product_id=2');
+  assert.throws(() => execFileSync(process.execPath,[
+    fileURLToPath(new URL('../src/publish.js',import.meta.url)),'--complete',coveragePath,path,
+  ],{ encoding: 'utf8', stdio: 'pipe' }),/Not every current catalog product/);
 });
 
 test('published reports and complete compressed downloads retain corrected counts and zero buckets', async t => {

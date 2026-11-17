@@ -6,6 +6,7 @@ import { execFileSync } from 'node:child_process';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
+import { DatabaseSync } from 'node:sqlite';
 import { Store, csv, volumeSource } from './store.js';
 import { writeVolumeFigure } from './figures.js';
 import { writeSalesFigure } from './sales-figure.js';
@@ -37,13 +38,67 @@ export function checkFreshness(coverage, now = new Date()) {
 export function checkCompleteSweep(coverage, now = new Date()) {
   checkFreshness(coverage, now);
   const sweep = coverage.sweep;
-  if (!sweep || sweep.date_utc !== now.toISOString().slice(0,10) ||
+  if (!Number.isSafeInteger(coverage.catalog_products) || coverage.catalog_products < 1 ||
+      !sweep || sweep.date_utc !== now.toISOString().slice(0,10) ||
       sweep.status !== 'complete' || sweep.products_failed !== 0 ||
       sweep.products_checked !== sweep.products_expected ||
       sweep.products_with_history + sweep.products_without_history !== sweep.products_expected ||
       sweep.products_expected !== coverage.catalog_products) {
     throw new Error('Catalog sweep is incomplete or failed; retained data is published but not an all-product success.');
   }
+}
+
+export function checkCompleteDatabase(db, coverage, now = new Date()) {
+  checkCompleteSweep(coverage, now);
+  db.exec('SAVEPOINT verify_complete_database');
+  try {
+    if (Object.values(db.prepare('PRAGMA quick_check').get())[0] !== 'ok') {
+      throw new Error('Public checkpoint failed SQLite integrity checks.');
+    }
+    const sweep = coverage.sweep;
+    const saved = db.prepare('SELECT * FROM volume_runs WHERE date_utc=?').get(sweep.date_utc);
+    if (!saved || Object.keys(sweep).some(key => saved[key] !== sweep[key])) {
+      throw new Error('Published coverage does not match the saved catalog sweep.');
+    }
+    const build = db.prepare(`SELECT source_build FROM catalog_runs
+      WHERE status='complete' ORDER BY id DESC LIMIT 1`).get()?.source_build;
+    if (!build || build !== coverage.catalog_source_build) {
+      throw new Error('Published catalog build does not match the public checkpoint.');
+    }
+    const counts = db.prepare(`SELECT count(*) AS products_expected,
+      coalesce(sum(j.status IN ('success','empty')),0) AS products_checked,
+      coalesce(sum(j.status='success'),0) AS products_with_history,
+      coalesce(sum(j.status='empty'),0) AS products_without_history,
+      coalesce(sum(j.status='failed'),0) AS products_failed
+      FROM catalog_products c LEFT JOIN volume_jobs j
+        ON j.product_id=c.product_id AND j.date_utc=?
+      WHERE c.is_current=1`).get(sweep.date_utc);
+    if (Object.entries(counts).some(([key, value]) => value !== sweep[key])) {
+      throw new Error('Not every current catalog product has a saved successful or empty result.');
+    }
+    const inconsistent = db.prepare(`SELECT count(*) AS n FROM volume_jobs j
+      JOIN catalog_products c ON c.product_id=j.product_id AND c.is_current=1
+      LEFT JOIN price_checks p ON p.product_id=j.product_id
+      WHERE j.date_utc=? AND (
+        julianday(j.fetched_at) IS NULL OR j.fetched_at<? OR j.fetched_at>?
+        OR p.checked_at IS NULL OR p.checked_at<>j.fetched_at
+        OR (j.status='empty' AND j.buckets<>0)
+        OR (j.status='success' AND (j.buckets<=0 OR j.buckets%30<>0))
+        OR j.buckets<>(SELECT count(*) FROM daily_volume v
+          WHERE v.product_id=j.product_id AND v.last_seen=j.fetched_at)
+        OR j.buckets<>(SELECT count(*) FROM daily_sale_prices v
+          WHERE v.product_id=j.product_id AND v.observed_at=j.fetched_at)
+      )`).get(sweep.date_utc, `${sweep.date_utc}T00:00:00.000Z`, coverage.generated_at).n;
+    if (inconsistent) {
+      throw new Error(`${inconsistent} catalog products lack matching fresh saved history and price checks.`);
+    }
+    const totals = db.prepare(`SELECT count(*) AS sku_buckets,sum(quantity) AS units,
+      sum(transaction_count) AS transactions FROM daily_volume`).get();
+    if (Object.entries(totals).some(([key, value]) => value !== coverage[key])) {
+      throw new Error('Published daily totals do not match the saved SKU buckets.');
+    }
+    return { ...counts, ...totals, catalog_source_build: build, inconsistent_products: inconsistent };
+  } finally { db.exec('RELEASE verify_complete_database'); }
 }
 
 export async function needsDailyCollection(coverage, { now = new Date(), fetcher = fetch } = {}) {
@@ -200,14 +255,20 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (args[0] === '--needs-collection' && args.length <= 2) {
       console.log(await needsDailyCollection(
         JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8'))));
-    } else if (['--check','--complete'].includes(args[0]) && args.length <= 2) {
-      (args[0] === '--complete' ? checkCompleteSweep : checkFreshness)(
-        JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8')));
+    } else if (['--check','--complete'].includes(args[0]) &&
+        args.length <= (args[0] === '--complete' ? 3 : 2)) {
+      const coverage = JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8'));
+      (args[0] === '--complete' ? checkCompleteSweep : checkFreshness)(coverage);
+      if (args[2]) {
+        const db = new DatabaseSync(resolve(args[2]), { readOnly: true });
+        try { console.log(JSON.stringify(checkCompleteDatabase(db, coverage))); }
+        finally { db.close(); }
+      }
       console.log('Daily GitHub data passed its checks; marketplace completeness remains unverified.');
     } else if (!args.length) {
       const dir = resolve(process.env.DATA_DIR ?? 'data');
       if (!statSync(join(dir, 'sales.sqlite')).size) throw new Error('Sales database is empty.');
       await publishGitHub(dir);
-    } else throw new Error('Usage: npm run publish -- [--check|--complete|--needs-collection [COVERAGE_JSON]]');
+    } else throw new Error('Usage: npm run publish -- [--check|--needs-collection [COVERAGE_JSON] | --complete COVERAGE_JSON [PUBLIC_SQLITE]]');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
