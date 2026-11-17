@@ -135,24 +135,28 @@ export async function syncVolume(store, {
   store.db.prepare(`INSERT OR IGNORE INTO volume_jobs (date_utc,product_id)
     SELECT ?,product_id FROM catalog_products WHERE is_current=1`).run(date);
   store.db.prepare(`UPDATE volume_jobs SET status='pending',attempts=0,warning=''
-    WHERE date_utc=? AND status='success' AND NOT EXISTS
+    WHERE date_utc=? AND status='success'
+      AND product_id IN (SELECT product_id FROM catalog_products WHERE is_current=1)
+      AND NOT EXISTS
       (SELECT 1 FROM price_checks p WHERE p.product_id=volume_jobs.product_id
         AND p.checked_at>=?)`).run(date, `${date}T00:00:00.000Z`);
   const progress = (status, warning = '') => {
-    store.db.prepare(`UPDATE volume_runs SET status=?,updated_at=?,warning=?,
+    store.db.prepare(`WITH current_jobs AS (
+      SELECT j.status FROM volume_jobs j JOIN catalog_products c ON c.product_id=j.product_id
+      WHERE j.date_utc=? AND c.is_current=1
+    ) UPDATE volume_runs SET status=?,updated_at=?,warning=?,
       finished_at=CASE WHEN ? IN ('complete','partial') THEN ? ELSE NULL END,
-      products_expected=(SELECT count(*) FROM volume_jobs WHERE date_utc=?),
-      products_checked=(SELECT count(*) FROM volume_jobs WHERE date_utc=? AND status<>'pending'),
-      products_with_history=(SELECT count(*) FROM volume_jobs WHERE date_utc=? AND status='success'),
-      products_without_history=(SELECT count(*) FROM volume_jobs WHERE date_utc=? AND status='empty'),
-      products_failed=(SELECT count(*) FROM volume_jobs WHERE date_utc=? AND status='failed')
-      WHERE date_utc=?`).run(status, now().toISOString(), warning, status, now().toISOString(),
-      date, date, date, date, date, date);
+      products_expected=(SELECT count(*) FROM current_jobs),
+      products_checked=(SELECT count(*) FROM current_jobs WHERE status<>'pending'),
+      products_with_history=(SELECT count(*) FROM current_jobs WHERE status='success'),
+      products_without_history=(SELECT count(*) FROM current_jobs WHERE status='empty'),
+      products_failed=(SELECT count(*) FROM current_jobs WHERE status='failed')
+      WHERE date_utc=?`).run(date, status, now().toISOString(), warning, status, now().toISOString(), date);
     return store.db.prepare('SELECT * FROM volume_runs WHERE date_utc=?').get(date);
   };
   const jobs = store.db.prepare(`SELECT j.product_id FROM volume_jobs j
     JOIN catalog_products c ON c.product_id=j.product_id
-    WHERE j.date_utc=? AND j.status IN ('pending','failed') AND j.attempts<3
+    WHERE j.date_utc=? AND c.is_current=1 AND j.status IN ('pending','failed') AND j.attempts<3
     ORDER BY c.category_id,c.product_id LIMIT ?`).all(date, limit);
   progress('running');
   let consecutiveFailures = 0;
@@ -191,8 +195,9 @@ export async function syncVolume(store, {
       }
     }
     const state = progress('paused');
-    const unfinished = store.db.prepare(`SELECT count(*) AS n FROM volume_jobs
-      WHERE date_utc=? AND status IN ('pending','failed') AND attempts<3`).get(date).n;
+    const unfinished = store.db.prepare(`SELECT count(*) AS n FROM volume_jobs j
+      JOIN catalog_products c ON c.product_id=j.product_id
+      WHERE j.date_utc=? AND c.is_current=1 AND j.status IN ('pending','failed') AND j.attempts<3`).get(date).n;
     return progress(unfinished ? 'paused' : state.products_failed ? 'partial' : 'complete');
   } catch (error) {
     progress(error.code === 'HISTORY_TRANSPORT' ? 'paused' : 'failed', error.message);

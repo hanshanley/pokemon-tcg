@@ -136,6 +136,30 @@ test('rate-limited or denied access stops the sweep rather than requesting every
   assert.equal(store.db.prepare('SELECT count(*) AS n FROM daily_volume').get().n, 0);
 });
 
+test('same-day catalog changes queue new products and exclude retired jobs without deleting sales history', async t => {
+  const store = setup(t), calls = [];
+  const options = { now: () => new Date('2026-10-31T12:00:00Z'), pause: async () => {}, log: () => {},
+    fetchHistory: async id => {
+      calls.push(id);
+      return id === 2 ? { status: 500 } : id === 4 ? { status: 200, body: { count: 0 } }
+        : { status: 200, body: history({ sku: id }) };
+    } };
+  await syncVolume(store,{ ...options, limit: 2 });
+  store.db.exec(`UPDATE catalog_products SET is_current=0 WHERE product_id IN (1,2);
+    INSERT INTO catalog_products VALUES
+    (4,3,604,'Set','Bulbasaur','','','','','["Bulbasaur"]','','new-build',1)`);
+  const state = await syncVolume(store,options);
+  assert.deepEqual(calls,[1,2,3,4]);
+  assert.equal(state.status,'complete');
+  assert.equal(state.products_expected,2);
+  assert.equal(state.products_checked,2);
+  assert.equal(state.products_with_history,1);
+  assert.equal(state.products_without_history,1);
+  assert.equal(state.products_failed,0);
+  assert.equal(store.db.prepare('SELECT count(*) AS n FROM daily_volume WHERE product_id=1').get().n,30);
+  assert.equal(store.db.prepare('SELECT status FROM volume_jobs WHERE product_id=2').get().status,'failed');
+});
+
 test('existing raw daily history migrates into product/day rollups without losing counts or zero days', t => {
   const dir = mkdtempSync(join(tmpdir(), 'pokemon-volume-migration-'));
   t.after(() => rmSync(dir, { recursive: true }));
