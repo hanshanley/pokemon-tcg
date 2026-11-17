@@ -157,7 +157,9 @@ export async function syncVolume(store, {
   const jobs = store.db.prepare(`SELECT j.product_id FROM volume_jobs j
     JOIN catalog_products c ON c.product_id=j.product_id
     WHERE j.date_utc=? AND c.is_current=1 AND j.status IN ('pending','failed') AND j.attempts<3
-    ORDER BY c.category_id,c.product_id LIMIT ?`).all(date, limit);
+    ORDER BY CASE WHEN j.status='pending' THEN j.fetched_at END IS NOT NULL,
+      CASE WHEN j.status='pending' THEN j.fetched_at END,
+      c.category_id,c.product_id LIMIT ?`).all(date, limit);
   progress('running');
   let consecutiveFailures = 0;
   try {
@@ -178,8 +180,8 @@ export async function syncVolume(store, {
         consecutiveFailures = 0;
       } catch (error) {
         if (error.code === 'HISTORY_TRANSPORT') {
-          store.db.prepare(`UPDATE volume_jobs SET status='pending',attempts=attempts-1,warning=?
-            WHERE date_utc=? AND product_id=?`).run(error.message, date, job.product_id);
+          store.db.prepare(`UPDATE volume_jobs SET status='pending',attempts=attempts-1,fetched_at=?,warning=?
+            WHERE date_utc=? AND product_id=?`).run(now().toISOString(), error.message, date, job.product_id);
           log(`History transport unavailable for product ${job.product_id}: ${error.message}`);
           throw error;
         }

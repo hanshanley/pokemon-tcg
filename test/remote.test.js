@@ -169,6 +169,38 @@ test('remote passes retry trailing product failures within the same request budg
   assert.equal(closed, 2);
 });
 
+test('one unavailable product does not block the rest of the catalog or claim completion', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  for (let id = 1; id <= 3; id++) store.db.prepare(`INSERT INTO catalog_products VALUES
+    (?,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run(id);
+  const calls = [];
+  const state = await collectRemote(store,{
+    limit: 10, refreshCatalog: async () => {}, pause: async () => {}, log: () => {},
+    createTransport: async () => ({ fetchHistory: async id => {
+      calls.push(id);
+      if (id === 1) throw new TypeError('Failed to fetch');
+      return { status: 200, body: { count: 0 } };
+    }, close: async () => {} }),
+  });
+  assert.deepEqual(calls.slice(0,3),[1,2,3]);
+  assert.equal(state.status,'paused');
+  assert.equal(state.products_checked,2);
+  assert.equal(state.products_failed,0);
+  assert.equal(store.db.prepare('SELECT attempts FROM volume_jobs WHERE product_id=1').get().attempts,0);
+  const recovered = [];
+  const complete = await collectRemote(store,{
+    refreshCatalog: async () => {}, log: () => {},
+    createTransport: async () => ({ fetchHistory: async id => {
+      recovered.push(id);
+      return { status: 200, body: { count: 0 } };
+    }, close: async () => {} }),
+  });
+  assert.deepEqual(recovered,[1]);
+  assert.equal(complete.status,'complete');
+  assert.equal(complete.products_checked,3);
+});
+
 test('persistent trailing failures exhaust three attempts without reporting completion', async t => {
   const store = new Store(':memory:');
   t.after(() => store.close());

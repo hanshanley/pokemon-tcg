@@ -210,6 +210,10 @@ back off 15 minutes and rate limits 30 minutes. Browser transport recovery after
 committed progress waits 15 seconds instead of spending the pass on idle time.
 Transport failures leave the product pending without consuming its three
 data-validation attempts; requests still count against the pass limit.
+An interrupted product goes behind untried pending products, then pending
+retries are ordered by oldest attempt, so one unavailable endpoint cannot
+prevent the rest of the catalog from being checked. Pending attempt timestamps
+do not count as successful source checks.
 Three consecutive unproductive
 history transports pause the pass with unfinished products still pending, so
 the next workflow pass can resume instead of being skipped. Committed progress
