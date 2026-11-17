@@ -18,7 +18,7 @@ The catalog covers English and Japanese products; **sales coverage is still
 partial, not a certified total for the whole marketplace**.
 
 <p align="center">
-  <img src="reports/latest/sales-value.svg" width="1200" alt="Daily Pokemon sales value: actual low-high price bounds, with the partial latest source day shown separately">
+  <img src="reports/latest/sales-value.png" width="1200" alt="Daily Pokemon sales value: actual low-high price bounds, with the partial latest source day shown separately">
 </p>
 
 The terracotta band shows daily item-value bounds from actual low/high SKU sale
@@ -66,7 +66,8 @@ and what would be needed to connect them.
 `main`. [Individual sales](.github/workflows/individual-sales.yml) are scheduled
 every three hours. No Mac or personal computer needs to be on.
 
-Reports, full downloads and the overview figure update from the retained data.
+Reports, full downloads and the embedded PNG update from the retained data
+on every daily-volume publication.
 Source errors remain visible in coverage and workflow results; a partial sweep
 is never labeled complete. GitHub may delay scheduled runs.
 A separate [freshness check](.github/workflows/daily-data-check.yml) checks
