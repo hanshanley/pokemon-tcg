@@ -2,7 +2,7 @@ name: Daily remote Pokemon sales
 
 on:
   schedule:
-    - cron: '15 0 * * *'
+    - cron: '15 0,6,12,18 * * *'
   workflow_dispatch:
     inputs:
       max_products:
@@ -22,7 +22,26 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      needed: ${{ steps.plan.outputs.needed }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Check today's sweep and the current source catalog build
+        id: plan
+        run: |
+          git fetch --depth=1 origin main
+          git show FETCH_HEAD:reports/latest/coverage.json > "$RUNNER_TEMP/coverage.json"
+          needed=$(node src/publish.js --needs-collection "$RUNNER_TEMP/coverage.json")
+          echo "needed=$needed" >> "$GITHUB_OUTPUT"
   first:
+    needs: plan
+    if: ${{ needs.plan.outputs.needed == 'true' }}
     uses: ./.github/workflows/remote-volume-pass.yml
     with:
       max_products: ${{ format('{0}', inputs.max_products || 25000) }}
@@ -38,7 +57,7 @@ jobs:
     with:
       max_products: ${{ format('{0}', inputs.max_products || 25000) }}
   verify:
-    needs: third
+    needs: [plan, third]
     if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5

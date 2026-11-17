@@ -74,7 +74,7 @@ async function collection(fetcher, url) {
   return data.results;
 }
 
-async function sourceBuild(fetcher) {
+export async function sourceBuild(fetcher = fetch) {
   const value = (await (await response(fetcher, `${base}/last-updated.txt`)).text()).trim();
   if (!value || value.length > 200) throw new Error('Invalid catalog build marker.');
   return value;

@@ -105,8 +105,13 @@ repeat at the next 00:15 UTC, refreshing the bulk catalog first.
 
 ## Daily GitHub updates
 
-The GitHub Actions **Daily remote Pokemon sales** workflow starts at
-**00:15 UTC daily**, using GitHub-hosted Ubuntu runners, not this Mac.
+The GitHub Actions **Daily remote Pokemon sales** workflow is scheduled at
+**00:15 UTC daily**, with catch-up checks at **06:15, 12:15 and 18:15 UTC**,
+using GitHub-hosted Ubuntu runners, not this Mac.
+Its preflight skips collection only when today's sweep is complete and the
+published `catalog_source_build` still matches the source's build marker.
+Otherwise it resumes the queue and refreshes the catalog, including newly
+published products. Scheduled GitHub starts can be delayed.
 It runs three sequential passes of up to 25,000 products each. Each pass
 has a four-hour collection deadline, persists its checkpoint, and publishes
 complete aggregate CSVs and coverage to the
@@ -202,7 +207,10 @@ committed progress waits 15 seconds instead of spending the pass on idle time.
 Transport failures leave the product pending without consuming its three
 data-validation attempts; requests still count against the pass limit.
 Three consecutive unproductive
-transports stop the pass; committed progress resets that recovery budget.
+history transports pause the pass with unfinished products still pending, so
+the next workflow pass can resume instead of being skipped. Committed progress
+resets that recovery budget. Unclassified/catalog failures still fail the pass;
+HTTP 401/403 still stop collection, and HTTP 429 retains its rate-limit backoff.
 Retries share the pass's product-request limit and four-hour deadline.
 Trailing failed products are retried within that same budget, up to three
 attempts per product; exhausted failures remain explicitly partial.
@@ -222,9 +230,13 @@ last published public checkpoint; work lost with a runner may need recollection.
 
 The GitHub Actions **Daily sales data freshness** workflow checks at 16:45 UTC
 and can be run manually. It fails if either publication or successful source
-checking is over 26 hours old; a newly generated timestamp alone cannot hide
-stale data. A fresh partial sweep remains partial, not certified marketplace
-coverage. Run **Daily remote Pokemon sales** manually with `max_products=100`
+checking is over 26 hours old, or if today's catalog sweep is incomplete.
+A newly generated timestamp alone cannot hide stale or partial data.
+Even a complete catalog sweep does not certify every marketplace transaction:
+the native source supplies daily SKU aggregates, and empty histories remain
+unknown. The overlapping 30-day window is re-fetched on later daily sweeps to
+retain late sales and source corrections; current-day counts are preliminary.
+Run **Daily remote Pokemon sales** manually with `max_products=100`
 for a bounded validation, or its default of 25,000 for production.
 
 ## Daily volume storage and reporting

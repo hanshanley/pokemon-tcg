@@ -80,7 +80,12 @@ export async function collectRemote(store, {
       remaining -= requests;
       const productive = completed() > before;
       failures = productive ? 0 : failures + 1;
-      if ([401, 403].includes(error.status) || failures >= 3) throw error;
+      if ([401, 403].includes(error.status)) throw error;
+      if (failures >= 3) {
+        if (error.code !== 'HISTORY_TRANSPORT' || error.status != null) throw error;
+        log('Transport retry budget exhausted; checkpointing pending products for the next scheduled pass.');
+        return store.db.prepare('SELECT * FROM volume_runs ORDER BY date_utc DESC LIMIT 1').get();
+      }
       if (remaining <= 0) {
         if (error.status === 429) throw error;
         return store.db.prepare('SELECT * FROM volume_runs ORDER BY date_utc DESC LIMIT 1').get();

@@ -9,6 +9,7 @@ import { createGzip } from 'node:zlib';
 import { Store, csv, volumeSource } from './store.js';
 import { writeVolumeFigure } from './figures.js';
 import { writeSalesFigure } from './sales-figure.js';
+import { sourceBuild } from './catalog.js';
 
 const repo = 'hanshanley/pokemon-tcg';
 const branch = 'main';
@@ -45,6 +46,13 @@ export function checkCompleteSweep(coverage, now = new Date()) {
   }
 }
 
+export async function needsDailyCollection(coverage, { now = new Date(), fetcher = fetch } = {}) {
+  try { checkCompleteSweep(coverage, now); }
+  catch { return true; }
+  if (!coverage.catalog_source_build) return true;
+  return coverage.catalog_source_build !== await sourceBuild(fetcher);
+}
+
 function* csvChunks(rows, fields) {
   const header = csv([], fields);
   yield header;
@@ -76,6 +84,8 @@ export async function exportSnapshot(store, directory, now = new Date()) {
       source: volumeSource, generated_at: now.toISOString(), ...totals,
       last_successful_check_at: lastCheck, sales_usd: priceVolume.sales_usd,
       catalog_products: store.db.prepare('SELECT count(*) AS n FROM catalog_products WHERE is_current=1').get().n,
+      catalog_source_build: store.db.prepare(`SELECT source_build FROM catalog_runs
+        WHERE status='complete' ORDER BY id DESC LIMIT 1`).get()?.source_build ?? null,
       sweep: run ? Object.fromEntries(['date_utc', 'status', 'updated_at', 'products_expected',
         'products_checked', 'products_with_history', 'products_without_history', 'products_failed']
         .map(key => [key, run[key]])) : null,
@@ -187,7 +197,10 @@ export async function publishGitHub(dataDirectory) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const args = process.argv.slice(2);
-    if (['--check','--complete'].includes(args[0]) && args.length <= 2) {
+    if (args[0] === '--needs-collection' && args.length <= 2) {
+      console.log(await needsDailyCollection(
+        JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8'))));
+    } else if (['--check','--complete'].includes(args[0]) && args.length <= 2) {
       (args[0] === '--complete' ? checkCompleteSweep : checkFreshness)(
         JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8')));
       console.log('Daily GitHub data passed its checks; marketplace completeness remains unverified.');
@@ -195,6 +208,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const dir = resolve(process.env.DATA_DIR ?? 'data');
       if (!statSync(join(dir, 'sales.sqlite')).size) throw new Error('Sales database is empty.');
       await publishGitHub(dir);
-    } else throw new Error('Usage: npm run publish -- [--check [COVERAGE_JSON] | --complete [COVERAGE_JSON]]');
+    } else throw new Error('Usage: npm run publish -- [--check|--complete|--needs-collection [COVERAGE_JSON]]');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

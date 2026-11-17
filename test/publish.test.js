@@ -8,7 +8,31 @@ import { pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { Store } from '../src/store.js';
 import { saveMonthHistory } from '../src/volume.js';
-import { exportSnapshot, checkFreshness, checkCompleteSweep, publishGitHub } from '../src/publish.js';
+import { exportSnapshot, checkFreshness, checkCompleteSweep, needsDailyCollection, publishGitHub } from '../src/publish.js';
+
+test('scheduled catch-up skips only a fresh complete sweep of the current source catalog', async () => {
+  const now = new Date('2026-11-17T18:00:00Z');
+  const complete = { source: 'tcgplayer-daily', sku_buckets: 30, catalog_products: 10,
+    catalog_source_build: 'build-1', generated_at: now.toISOString(),
+    last_successful_check_at: now.toISOString(),
+    sweep: { date_utc: '2026-11-17', status: 'complete', products_expected: 10,
+      products_checked: 10, products_with_history: 7, products_without_history: 3, products_failed: 0 } };
+  const current = { now, fetcher: async () => ({ ok: true, text: async () => 'build-1\n' }) };
+  assert.equal(await needsDailyCollection(complete,current),false);
+  assert.equal(await needsDailyCollection(complete,{ now,
+    fetcher: async () => ({ ok: true, text: async () => 'build-2' }) }),true);
+  assert.equal(await needsDailyCollection({ ...complete, catalog_source_build: null },current),true);
+  const noFetch = { now, fetcher: async () => { throw new Error('Incomplete data must be resumed'); } };
+  for (const change of [{ status: 'paused' }, { products_checked: 9 }, { products_failed: 1 },
+    { date_utc: '2026-11-16' }]) {
+    assert.equal(await needsDailyCollection({ ...complete, sweep: { ...complete.sweep, ...change } },noFetch),true);
+  }
+  assert.equal(await needsDailyCollection({ ...complete, generated_at: '2026-11-15T00:00:00Z' },noFetch),true);
+  await assert.rejects(needsDailyCollection(complete,{ now,
+    fetcher: async () => ({ ok: false, status: 503 }) }),error => error.status === 503);
+  await assert.rejects(needsDailyCollection(complete,{ now,
+    fetcher: async () => ({ ok: true, text: async () => '' }) }),/Invalid catalog build/);
+});
 
 test('all-product verification rejects fresh but incomplete, failed, stale-date and inconsistent sweeps', () => {
   const now = new Date('2026-11-16T18:00:00Z');
@@ -30,7 +54,7 @@ test('freshness and complete-sweep CLI checks work without installed rendering d
   t.after(() => rmSync(directory,{ recursive: true, force: true }));
   mkdirSync(join(directory,'src'));
   writeFileSync(join(directory,'package.json'),'{"type":"module"}');
-  for (const name of ['publish.js','store.js','figures.js','sales-figure.js']) {
+  for (const name of ['publish.js','store.js','figures.js','sales-figure.js','catalog.js']) {
     copyFileSync(new URL(`../src/${name}`,import.meta.url),join(directory,'src',name));
   }
   const now = new Date().toISOString();
@@ -45,6 +69,8 @@ test('freshness and complete-sweep CLI checks work without installed rendering d
     assert.match(execFileSync(process.execPath,[join(directory,'src/publish.js'),flag,path],
       { encoding: 'utf8' }),/passed its checks/);
   }
+  assert.equal(execFileSync(process.execPath,
+    [join(directory,'src/publish.js'),'--needs-collection',path],{ encoding: 'utf8' }).trim(),'true');
 });
 
 test('published reports and complete compressed downloads retain corrected counts and zero buckets', async t => {
@@ -53,6 +79,9 @@ test('published reports and complete compressed downloads retain corrected count
   t.after(() => { store.close(); rmSync(directory, { recursive: true }); });
   store.db.prepare(`INSERT INTO catalog_products VALUES
     (1,3,604,'Fixture set','Charizard','','','','','["Charizard"]','','build',1)`).run();
+  store.db.exec(`INSERT INTO catalog_runs(source_build,started_at,status) VALUES
+    ('build-complete','2026-11-01T10:00:00Z','complete'),
+    ('build-incomplete','2026-11-01T11:00:00Z','running')`);
   const now = new Date('2026-11-01T12:00:00Z');
   const payload = { count: 1, result: [{ skuId: '101', condition: 'Near Mint',
     variant: 'Holofoil', language: 'English', buckets: Array.from({ length: 30 }, (_, index) => ({
@@ -64,6 +93,7 @@ test('published reports and complete compressed downloads retain corrected count
   payload.result[0].buckets[0].quantitySold = 3;
   saveMonthHistory(store, 1, payload, now.toISOString());
   const coverage = await exportSnapshot(store, directory, now);
+  assert.equal(coverage.catalog_source_build,'build-complete');
   assert.equal(coverage.units, 3);
   assert.equal(coverage.sku_buckets, 30);
   assert.equal(coverage.sales_usd, null);

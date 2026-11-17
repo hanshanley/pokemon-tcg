@@ -62,16 +62,18 @@ and what would be needed to connect them.
 ## Automatic updates
 
 [Daily volume collection](.github/workflows/daily-volume.yml) is scheduled at
-**00:15 UTC** on GitHub-hosted runners, with resumable state and publication to
-`main`. [Individual sales](.github/workflows/individual-sales.yml) are scheduled
+**00:15 UTC**, with catch-up checks at **06:15, 12:15 and 18:15 UTC**, on
+GitHub-hosted runners. An incomplete sweep resumes its saved queue; a complete
+sweep is skipped only if the source catalog build is unchanged.
+Publication goes to `main`. [Individual sales](.github/workflows/individual-sales.yml) are scheduled
 every three hours. No Mac or personal computer needs to be on.
 
 Reports, full downloads and the embedded PNG update from the retained data
 on every daily-volume publication.
 Source errors remain visible in coverage and workflow results; a partial sweep
 is never labeled complete. GitHub may delay scheduled runs.
-A separate [freshness check](.github/workflows/daily-data-check.yml) checks
-publication and successful native-source observation timestamps.
+A separate [daily check](.github/workflows/daily-data-check.yml) requires fresh
+publication, fresh native-source observations and a complete current-day sweep.
 
 ## Setup
 

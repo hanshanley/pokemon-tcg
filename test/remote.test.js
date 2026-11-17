@@ -110,25 +110,36 @@ test('productive remote recovery resets the failure budget without exceeding the
   assert.equal(state.status, 'complete');
 });
 
-test('remote recovery stops after three unproductive transports', async t => {
+test('three unproductive transports pause the pass and leave pending products resumable', async t => {
   const store = new Store(':memory:');
   t.after(() => store.close());
   for (let id = 1; id <= 3; id++) store.db.prepare(`INSERT INTO catalog_products VALUES
     (?,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run(id);
   let starts = 0, closed = 0;
   const waits = [];
-  await assert.rejects(collectRemote(store, { refreshCatalog: async () => {}, log: () => {},
+  const state = await collectRemote(store, { refreshCatalog: async () => {}, log: () => {},
     pause: async delay => waits.push(delay),
     createTransport: async () => {
       starts++;
       return { fetchHistory: async () => { throw new Error('Temporary fetch failure'); },
         close: async () => { closed++; } };
-    } }), /Temporary fetch failure/);
+    } });
+  assert.equal(state.status, 'paused');
+  assert.equal(state.products_checked, 0);
+  assert.equal(state.products_failed, 0);
   assert.equal(starts, 3);
   assert.equal(closed, 3);
   assert.deepEqual(waits, [900000,900000]);
   assert.deepEqual({ ...store.db.prepare('SELECT status,attempts FROM volume_jobs LIMIT 1').get() },
     { status: 'pending', attempts: 0 });
+  const resumed = await collectRemote(store, {
+    refreshCatalog: async () => {}, log: () => {},
+    createTransport: async () => ({ fetchHistory: async () => ({ status: 200, body: { count: 0 } }),
+      close: async () => {} }),
+  });
+  assert.equal(resumed.status, 'complete');
+  assert.equal(resumed.products_checked, 3);
+  assert.equal(resumed.products_failed, 0);
 });
 
 test('remote passes retry trailing product failures within the same request budget', async t => {
