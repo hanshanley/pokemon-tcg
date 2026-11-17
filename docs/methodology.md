@@ -215,6 +215,11 @@ back off 15 minutes and rate limits 30 minutes. Browser transport recovery after
 committed progress waits 15 seconds instead of spending the pass on idle time.
 Transport failures leave the product pending without consuming its three
 data-validation attempts; requests still count against the pass limit.
+Each remote pass pins its UTC queue date when it starts, including across
+transport reconnects after midnight. Successful products are not replayed into
+a new queue partway through that pass. Source observation and price-check
+timestamps remain the actual fetch times; finishing yesterday's queue does
+not satisfy the health check for today's complete sweep.
 An interrupted product goes behind untried pending products, then pending
 retries are ordered by oldest attempt, so one unavailable endpoint cannot
 prevent the rest of the catalog from being checked. Pending attempt timestamps

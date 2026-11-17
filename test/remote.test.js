@@ -201,6 +201,39 @@ test('one unavailable product does not block the rest of the catalog or claim co
   assert.equal(complete.products_checked,3);
 });
 
+test('a reconnect across UTC midnight finishes the same queue without replaying successful products', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  for (let id = 1; id <= 3; id++) store.db.prepare(`INSERT INTO catalog_products VALUES
+    (?,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run(id);
+  let time = new Date('2026-11-17T23:59:59Z'), round = 0;
+  const calls = [];
+  const state = await collectRemote(store,{
+    now: () => time, refreshCatalog: async () => {}, pause: async () => {}, log: () => {},
+    createTransport: async () => {
+      const current = ++round;
+      return { close: async () => {}, fetchHistory: async id => {
+        calls.push(id);
+        if (current === 1 && id === 2) {
+          time = new Date('2026-11-18T00:00:01Z');
+          throw new TypeError('Failed to fetch');
+        }
+        return { status: 200, body: { count: 0 } };
+      } };
+    },
+  });
+  assert.deepEqual(calls,[1,2,3,2]);
+  assert.equal(state.date_utc,'2026-11-17');
+  assert.equal(state.status,'complete');
+  assert.equal(state.products_checked,3);
+  assert.deepEqual(store.db.prepare('SELECT DISTINCT date_utc FROM volume_jobs').all()
+    .map(row => row.date_utc),['2026-11-17']);
+  assert.equal(store.db.prepare('SELECT fetched_at FROM volume_jobs WHERE product_id=2')
+    .get().fetched_at,'2026-11-18T00:00:01.000Z');
+  assert.equal(store.db.prepare('SELECT checked_at FROM price_checks WHERE product_id=2')
+    .get().checked_at,'2026-11-18T00:00:01.000Z');
+});
+
 test('persistent trailing failures exhaust three attempts without reporting completion', async t => {
   const store = new Store(':memory:');
   t.after(() => store.close());

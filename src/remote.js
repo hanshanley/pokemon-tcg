@@ -49,8 +49,9 @@ export function publicCheckpoint(source, destination) {
 
 export async function collectRemote(store, {
   limit = 25000, signal, refreshCatalog = syncCatalog, createTransport = historyBrowser,
-  pause = delay => sleep(delay, undefined, { signal }), log = console.log,
+  pause = delay => sleep(delay, undefined, { signal }), log = console.log, now = () => new Date(),
 } = {}) {
+  const queueDate = now().toISOString().slice(0,10);
   let failures = 0, remaining = limit;
   const completed = () => store.db.prepare(`SELECT count(*) AS n FROM volume_jobs
     WHERE status IN ('success','empty')`).get().n;
@@ -64,7 +65,7 @@ export async function collectRemote(store, {
       transport = await createTransport();
       let state;
       do {
-        state = await syncVolume(store, { ...transport, limit: remaining - requests, signal, log,
+        state = await syncVolume(store, { ...transport, limit: remaining - requests, signal, log, now, queueDate,
           fetchHistory: async id => {
             requests++;
             try { return await transport.fetchHistory(id); }

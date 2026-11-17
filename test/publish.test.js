@@ -51,6 +51,9 @@ test('all-product verification rejects fresh but incomplete, failed, stale-date 
   assert.throws(() => checkCompleteSweep({ ...complete, catalog_products: 0,
     sweep: { ...complete.sweep, products_expected: 0, products_checked: 0,
       products_with_history: 0, products_without_history: 0 } },now),/incomplete or failed/);
+  assert.throws(() => checkCompleteSweep({ ...complete,
+    sweep: { ...complete.sweep, status: 'paused', products_checked: 9 } },now),
+  /9\/10 products checked; 0 failed; queue 2026-11-16 is paused/);
 });
 
 test('freshness and complete-sweep CLI checks work without installed rendering dependencies', t => {

@@ -136,6 +136,17 @@ test('rate-limited or denied access stops the sweep rather than requesting every
   assert.equal(store.db.prepare('SELECT count(*) AS n FROM daily_volume').get().n, 0);
 });
 
+test('an explicit queue date rejects malformed and future days before making history requests', async t => {
+  const store = setup(t);
+  for (const queueDate of ['2026-02-30','2026-11-19','not-a-date']) {
+    await assert.rejects(syncVolume(store,{
+      queueDate, now: () => new Date('2026-11-18T00:00:01Z'),
+      fetchHistory: async () => { throw new Error('Must not fetch for an invalid queue date'); },
+    }),/valid queue date/);
+  }
+  assert.equal(store.db.prepare('SELECT count(*) AS n FROM volume_jobs').get().n,0);
+});
+
 test('same-day catalog changes queue new products and exclude retired jobs without deleting sales history', async t => {
   const store = setup(t), calls = [];
   const options = { now: () => new Date('2026-10-31T12:00:00Z'), pause: async () => {}, log: () => {},

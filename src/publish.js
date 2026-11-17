@@ -44,7 +44,10 @@ export function checkCompleteSweep(coverage, now = new Date()) {
       sweep.products_checked !== sweep.products_expected ||
       sweep.products_with_history + sweep.products_without_history !== sweep.products_expected ||
       sweep.products_expected !== coverage.catalog_products) {
-    throw new Error('Catalog sweep is incomplete or failed; retained data is published but not an all-product success.');
+    throw new Error(`Catalog sweep is incomplete or failed: ${sweep?.products_checked ?? 'unknown'}/` +
+      `${coverage.catalog_products ?? 'unknown'} products checked; ${sweep?.products_failed ?? 'unknown'} failed; ` +
+      `queue ${sweep?.date_utc ?? 'unknown'} is ${sweep?.status ?? 'unknown'} ` +
+      `(required UTC date ${now.toISOString().slice(0,10)}). Retained data is not an all-product success.`);
   }
 }
 

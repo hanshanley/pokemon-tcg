@@ -124,12 +124,16 @@ export function saveMonthHistory(store, productId, payload, now = new Date().toI
 
 export async function syncVolume(store, {
   fetchHistory, limit = Number.MAX_SAFE_INTEGER, pause = () => sleep(250),
-  now = () => new Date(), signal, log = console.log,
+  now = () => new Date(), queueDate, signal, log = console.log,
 } = {}) {
   if (typeof fetchHistory !== 'function' || !Number.isSafeInteger(limit) || limit < 1) {
     throw new Error('Provide a history transport and a positive integer limit.');
   }
-  const started = now().toISOString(), date = started.slice(0, 10);
+  const started = now().toISOString(), date = queueDate ?? started.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) ||
+      new Date(date).toISOString().slice(0,10) !== date || date > started.slice(0,10)) {
+    throw new Error('Provide a valid queue date no later than the observation date.');
+  }
   store.db.prepare(`INSERT OR IGNORE INTO volume_runs
     (date_utc,started_at,updated_at,status) VALUES (?,?,?,'paused')`).run(date, started, started);
   store.db.prepare(`INSERT OR IGNORE INTO volume_jobs (date_utc,product_id)
