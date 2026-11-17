@@ -18,6 +18,7 @@ export function salesPlotRows(rows, coverage) {
   const checkedDate = (coverage.last_successful_check_at ?? coverage.generated_at)?.slice(0,10);
   if (!checkedDate || !/^\d{4}-\d{2}-\d{2}$/.test(checkedDate) ||
       !Number.isFinite(Date.parse(checkedDate))) throw new Error('Missing sales chart observation date.');
+  const latestDate = rows.reduce((latest,row) => row.date_source > latest ? row.date_source : latest,'');
   const seen = new Set();
   return rows.map(row => {
     const time = Date.parse(`${row.date_source}T00:00:00Z`);
@@ -37,7 +38,7 @@ export function salesPlotRows(rows, coverage) {
       throw new Error('Invalid sales chart quantity or price bounds.');
     }
     const status = !available ? 'missing_prices' : priced < units ? 'partial_prices'
-      : row.date_source >= checkedDate ? 'partial_day' : 'historical';
+      : row.date_source === latestDate || row.date_source >= checkedDate ? 'partial_day' : 'historical';
     const plotted = ['historical','partial_day'].includes(status);
     return { ...row, plot_status: status,
       plot_lower_usd: plotted ? low : '', plot_upper_usd: plotted ? high : '' };

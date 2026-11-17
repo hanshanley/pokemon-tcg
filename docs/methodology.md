@@ -174,8 +174,9 @@ item-dollar bounds. Only dates with prices for **all observed units** enter the
 terracotta historical band; missing/partially priced dates remain gaps.
 Explicit observed zero days remain zero. The same-day estimate is a separate
 blue interval, not a joined line implying a completed-day decline. The source
-timezone is unpublished, so the latest source date at or after the UTC check
-date is conservatively considered partial. These are changing historical
+timezone is unpublished, so the latest retained source date is conservatively
+considered partial even when UTC has already rolled into the following day.
+These are changing historical
 coverage cohorts, not certified whole-market receipts or a confidence interval.
 
 The `-moe` SVG/PNG pair changes only the paper background. `sales-value.csv`

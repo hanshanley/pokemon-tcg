@@ -33,7 +33,7 @@ test('historical bounds preserve price gaps and never connect the partial latest
 });
 
 test('an entirely absent source date breaks the historical band', () => {
-  const { svg } = salesFigure([rows[0],rows[2]],coverage);
+  const { svg } = salesFigure([rows[0],rows[2],rows[3]],coverage);
   assert.ok(!svg.includes('<polygon'));
   assert.equal((svg.match(/<polyline /g) ?? []).length,4);
 });
@@ -42,11 +42,19 @@ test('only explicit priced zero days plot at zero, while missing prices stay una
   const zero = { ...rows[0], units: 0, priced_units: 0, unpriced_units: 0,
     priced_sales_lower_usd: 0, priced_sales_upper_usd: 0 };
   assert.equal(salesPlotRows([zero],coverage)[0].plot_lower_usd,0);
-  assert.ok(salesFigure([zero],coverage).svg.includes('2026-11-01: $0 to $0'));
+  assert.ok(salesFigure([zero],coverage).svg.includes('2026-11-01: partial day, $0 to $0'));
   const absent = { ...rows[0], priced_units: '', priced_sales_lower_usd: '', priced_sales_upper_usd: '' };
   assert.equal(salesPlotRows([absent],coverage)[0].plot_status,'missing_prices');
   assert.ok(salesFigure([absent],coverage).svg.includes('no zero sales inferred'));
   assert.throws(() => salesFigure([],coverage),/No observed/);
+});
+
+test('the latest source day remains preliminary across UTC midnight with an unpublished source timezone', () => {
+  const afterMidnight = { ...coverage, last_successful_check_at: '2026-11-05T00:15:00Z' };
+  assert.equal(salesPlotRows(rows,afterMidnight).at(-1).plot_status,'partial_day');
+  const { svg } = salesFigure(rows,afterMidnight);
+  assert.equal((svg.match(/data-series="partial-day"/g) ?? []).length,1);
+  assert.ok(svg.includes('Nov 4): $100 to $120; partial day'));
 });
 
 test('chart inputs reject inconsistent quantities, bounds, dates and duplicates', () => {
@@ -68,7 +76,9 @@ test('publication backgrounds change no non-background chart content', () => {
 test('the publication bundle includes actual PNGs, replay data, captions and verified input/output hashes', async t => {
   const directory = mkdtempSync(join(tmpdir(),'pokemon-sales-figure-'));
   t.after(() => rmSync(directory,{ recursive: true, force: true }));
-  writeFileSync(join(directory,'coverage.json'),JSON.stringify(coverage));
+  writeFileSync(join(directory,'coverage.json'),JSON.stringify({
+    ...coverage, last_successful_check_at: '2026-11-05T00:15:00Z',
+  }));
   writeFileSync(join(directory,'daily-trading.csv'),csv(rows,Object.keys(rows[0])));
   await writeSalesFigure(directory);
   const metadata = JSON.parse(readFileSync(join(directory,'sales-value.json'),'utf8'));
