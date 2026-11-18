@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer } from 'node:http';
+import { chromium } from 'playwright';
 import { Store, volumeSource } from '../src/store.js';
-import { monthHistory, saveMonthHistory, syncVolume } from '../src/volume.js';
+import { monthHistory, saveMonthHistory, syncVolume, historyFetcher } from '../src/volume.js';
 
 function setup(t) {
   const store = new Store(':memory:');
@@ -29,6 +31,41 @@ function history({ sku = 101, condition = 'Near Mint', quantity = 3, transaction
     })),
   }] };
 }
+
+test('real browser CORS failures preserve denial, rate-limit and service-error statuses without reading blocked bodies', async t => {
+  let status = 200, allow = false, disconnect = false, browser;
+  const origin = createServer((request,response) => {
+    response.writeHead(200,{ 'Content-Type': 'text/html' });
+    response.end('<!doctype html><title>History transport fixture</title>');
+  });
+  const api = createServer((request,response) => {
+    if (disconnect) return request.socket.destroy();
+    response.writeHead(status,{ 'Content-Type': 'application/json',
+      ...(allow ? { 'Access-Control-Allow-Origin': '*' } : {}) });
+    response.end(JSON.stringify({ count: 0 }));
+  });
+  t.after(async () => {
+    if (browser) await browser.close();
+    await Promise.all([origin,api].map(server => new Promise(resolve => server.close(resolve))));
+  });
+  await Promise.all([origin,api].map(server =>
+    new Promise(resolve => server.listen(0,'127.0.0.1',resolve))));
+  browser = await chromium.launch();
+  const page = await browser.newPage();
+  await page.goto(`http://127.0.0.1:${origin.address().port}`);
+  const fetchHistory = await historyFetcher(page,id => `http://127.0.0.1:${api.address().port}/${id}`);
+  for (const code of [401,403,429,503]) {
+    status = code;
+    assert.deepEqual(await fetchHistory(code),{ status: code, body: null });
+  }
+  status = 200;
+  await assert.rejects(fetchHistory(200),error => error.status == null && /fetch/i.test(error.message));
+  disconnect = true;
+  await assert.rejects(fetchHistory(201),error => error.status == null);
+  disconnect = false;
+  allow = true;
+  assert.deepEqual(await fetchHistory(202),{ status: 200, body: { count: 0 } });
+});
 
 test('daily normalization rejects coarse, duplicated and invalid buckets without inventing missing units', () => {
   const valid = history();

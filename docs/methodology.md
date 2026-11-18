@@ -92,6 +92,10 @@ requests returned HTTP 403 and headless access is not guaranteed. The collector
 does not solve challenges, log in, copy signed requests, or use a personal browser
 profile. One ordinary homepage navigation establishes the public browser origin;
 every product is then fetched using a plain API request.
+The browser's read-only network diagnostics preserve HTTP error statuses even
+when cross-origin policy hides them from `fetch()`. Blocked response bodies are
+never read. This keeps denied access and rate-limit responses on their existing
+stop/backoff paths instead of treating them as unidentified transport failures.
 
 SQLite queues **all current catalog IDs**, including singles, trainers, code
 cards, sealed products and Pokemon Japan. Calls are sequential with a 250 ms

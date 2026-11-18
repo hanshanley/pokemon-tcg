@@ -211,6 +211,34 @@ export async function syncVolume(store, {
   }
 }
 
+export async function historyFetcher(page, urlFor = id =>
+  `https://infinite-api.tcgplayer.com/price/history/${id}/detailed?range=month`) {
+  const session = await page.context().newCDPSession(page);
+  let active;
+  session.on('Network.requestWillBeSent', ({ requestId, request }) => {
+    if (active && request.url === active.url) active.requests.add(requestId);
+  });
+  session.on('Network.responseReceivedExtraInfo', ({ requestId, statusCode }) => {
+    if (active) active.statuses.set(requestId,statusCode);
+  });
+  await session.send('Network.enable');
+  return async id => {
+    const state = { url: urlFor(id), requests: new Set(), statuses: new Map() };
+    active = state;
+    try {
+      return await page.evaluate(async url => {
+        const result = await fetch(url, { signal: AbortSignal.timeout(20000) });
+        return { status: result.status, body: result.ok ? await result.json() : null };
+      },state.url);
+    } catch (error) {
+      // Observe hidden HTTP errors without reading cross-origin blocked bodies.
+      const status = [...state.requests].map(key => state.statuses.get(key)).findLast(code => code >= 400);
+      if (status) return { status, body: null };
+      throw error;
+    } finally { active = null; }
+  };
+}
+
 export async function historyBrowser() {
   const browser = await chromium.launch({
     headless: process.env.HEADLESS === '1',
@@ -228,12 +256,7 @@ export async function historyBrowser() {
     }
     return {
       close: () => browser.close(),
-      fetchHistory: id => page.evaluate(async productId => {
-        const result = await fetch(
-          `https://infinite-api.tcgplayer.com/price/history/${productId}/detailed?range=month`,
-          { signal: AbortSignal.timeout(20000) });
-        return { status: result.status, body: result.ok ? await result.json() : null };
-      }, id),
+      fetchHistory: await historyFetcher(page),
     };
   } catch (error) { await browser.close(); throw error; }
 }
