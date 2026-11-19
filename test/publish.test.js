@@ -9,7 +9,49 @@ import { gunzipSync } from 'node:zlib';
 import { Store } from '../src/store.js';
 import { saveMonthHistory, syncVolume } from '../src/volume.js';
 import { exportSnapshot, checkFreshness, checkCompleteSweep, checkCompleteDatabase,
-  needsDailyCollection, publishGitHub } from '../src/publish.js';
+  needsDailyCollection, publishGitHub, updateReadmeLeaderboard } from '../src/publish.js';
+
+const readmeWithLeaderboard = `# Existing heading
+
+<!-- BEGIN POKEMON LEADERBOARD -->
+Old leaderboard
+<!-- END POKEMON LEADERBOARD -->
+
+Footer
+`;
+
+test('README leaderboard limits rows to ten and skips the newest source day', () => {
+  const date_source = '2026-11-17';
+  const latest = '2026-11-18';
+  const daily = [{ date_source: latest }, { date_source }, { date_source: '2026-11-16' }];
+  const pokemon = [
+    { date_source: latest, pokemon_key: 'newest', pokemon: 'Newest', units: 9999, sale_records: 9999 },
+    ...Array.from({ length: 11 }, (_, i) => ({
+      date_source, pokemon_key: `species-${i}`, pokemon: `Species ${i}`, units: 100 - i, sale_records: i + 1,
+    })).reverse(),
+    { date_source, pokemon_key: 'a', pokemon: 'A | B', units: 100, sale_records: 2 },
+  ];
+  const readme = updateReadmeLeaderboard(readmeWithLeaderboard, daily, pokemon, latest);
+  assert.match(readme, /\*\*2026-11-17\*\*/);
+  assert.match(readme, /\| 1 \| A &#124; B \| 100 \| 2 \|/);
+  assert.match(readme, /\| 2 \| Species 0 \| 100 \| 1 \|/);
+  assert.match(readme, /\| 10 \| Species 8 \| 92 \| 9 \|/);
+  assert.doesNotMatch(readme, /Newest|Species 9|Old leaderboard/);
+  assert.match(readme, /^# Existing heading/);
+  assert.match(readme, /\nFooter\n$/);
+  assert.equal(updateReadmeLeaderboard(readme, daily, pokemon, latest), readme);
+});
+
+test('README does not present preliminary or unavailable Pokemon sales as zero', () => {
+  const date_source = '2026-11-17';
+  assert.match(updateReadmeLeaderboard(readmeWithLeaderboard, [{ date_source }], [], date_source),
+    /No prior source day is available/);
+  const pokemon = [{ date_source, pokemon: 'Zero', pokemon_key: 'zero', units: 0, sale_records: 0 }];
+  assert.match(updateReadmeLeaderboard(readmeWithLeaderboard, [{ date_source }], pokemon, '2026-11-18'),
+    /No mapped Pokemon sales were reported for this day/);
+  assert.throws(() => updateReadmeLeaderboard('# Missing markers\n', [], [], date_source),
+    /Invalid README leaderboard markers/);
+});
 
 test('scheduled catch-up skips only a fresh complete sweep of the current source catalog', async () => {
   const now = new Date('2026-11-17T18:00:00Z');
@@ -242,6 +284,7 @@ test('publishing keeps main as the only branch and preserves concurrent code com
   git(['-C', source, 'config', 'user.name', 'Fixture']);
   git(['-C', source, 'config', 'user.email', 'fixture@example.test']);
   writeFileSync(join(source, 'app.txt'), 'Existing application code\n');
+  writeFileSync(join(source, 'README.md'), readmeWithLeaderboard);
   git(['-C', source, 'add', '.']);
   git(['-C', source, 'commit', '-m', 'Initial application']);
   git(['clone', '--bare', source, remote]);
@@ -255,7 +298,7 @@ test('publishing keeps main as the only branch and preserves concurrent code com
   process.env.TEST_PUBLICATION_ASSETS = join(directory, 'assets.json');
   process.env.PATH = `${directory}:${process.env.PATH}`;
   writeFileSync(join(directory, 'gh'), `#!/usr/bin/env node
-const {writeFileSync} = require('node:fs');
+const {appendFileSync,writeFileSync} = require('node:fs');
 const {execFileSync} = require('node:child_process');
 if (process.argv[2] === 'release' && process.argv[3] === 'upload') {
   writeFileSync(process.env.TEST_PUBLICATION_ASSETS, JSON.stringify(process.argv.slice(4)));
@@ -264,6 +307,7 @@ if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
   const source = process.env.TEST_PUBLICATION_SOURCE;
   const git = args => execFileSync('git', ['-C', source, ...args]);
   writeFileSync(source + '/concurrent.txt', 'Concurrent application update\\n');
+  appendFileSync(source + '/README.md', '\\nConcurrent README edit\\n');
   git(['add', '.']);
   git(['commit', '-m', 'Concurrent application update']);
   git(['push', process.env.TEST_PUBLICATION_REMOTE, 'main']);
@@ -279,19 +323,25 @@ if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
       condition: 'Near Mint', variant: 'Holofoil', language: 'English',
       buckets: Array.from({ length: 30 }, (_, index) => ({
         bucketStartDate: new Date(now - index * 86400000).toISOString().slice(0, 10),
-        quantitySold: index === 0 ? 3 : 0, transactionCount: index === 0 ? 2 : 0,
+        quantitySold: index === 0 ? 3 : index === 1 ? 2 : 0,
+        transactionCount: index === 0 ? 2 : index === 1 ? 1 : 0,
       })) }] }, now.toISOString());
   } finally { store.close(); }
   const coverage = await publishGitHub(data);
-  assert.equal(coverage.units, 3);
+  assert.equal(coverage.units, 5);
   assert.equal(git(['--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads']), 'refs/heads/main');
   assert.equal(git(['--git-dir', remote, 'show', 'main:app.txt']), 'Existing application code');
   assert.equal(git(['--git-dir', remote, 'show', 'main:concurrent.txt']), 'Concurrent application update');
   const published = JSON.parse(git(['--git-dir', remote, 'show', 'main:reports/latest/coverage.json']));
-  assert.equal(published.units, 3);
+  assert.equal(published.units, 5);
   assert.equal(published.sku_buckets, 30);
+  const readme = git(['--git-dir', remote, 'show', 'main:README.md']);
+  assert.ok(readme.includes(`**${new Date(Date.parse(published.last_source_date) - 86400000)
+    .toISOString().slice(0, 10)}**`));
+  assert.ok(readme.includes('| 1 | Charizard | 2 | 1 |'));
+  assert.ok(readme.endsWith('Concurrent README edit'));
   assert.ok(git(['--git-dir', remote, 'show', 'main:reports/latest/volume.svg'])
-    .includes('3 observed units and 2 reported transactions'));
+    .includes('5 observed units and 3 reported transactions'));
   assert.equal(git(['--git-dir', remote, 'show', 'main:reports/latest/daily-trading.csv'])
     .trimEnd().split(/\r?\n/).length, 31);
   assert.equal(git(['--git-dir', remote, 'show', 'main:reports/latest/set-daily-trading.csv'])

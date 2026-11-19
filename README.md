@@ -2,6 +2,7 @@
   <h1>Pokemon Card Sales</h1>
   <p>
     <a href="#observed-sales-volume">Overview</a> ·
+    <a href="#daily-pokemon-leaderboard">Leaderboard</a> ·
     <a href="#explore-the-data">Data</a> ·
     <a href="docs/methodology.md">Methodology</a> ·
     <a href="#setup">Setup</a>
@@ -38,6 +39,32 @@ Separately, the individual-sale archive retains actual timestamps, quantities
 and unit prices for four products. Its captured dollar totals are exact for
 those retained rows, but five-row public windows can miss intervening sales.
 The two datasets are never added together.
+
+## Daily Pokemon leaderboard
+
+<!-- BEGIN POKEMON LEADERBOARD -->
+
+**2026-11-18** (TCGplayer source date) · ranked by reported units sold.
+
+| Rank | Pokemon | Units sold | Reported transactions |
+| ---: | --- | ---: | ---: |
+| 1 | Pikachu | 194 | 113 |
+| 2 | Psyduck | 152 | 72 |
+| 3 | Charmander | 114 | 79 |
+| 4 | Eevee | 103 | 65 |
+| 5 | Unown | 103 | 87 |
+| 6 | Squirtle | 100 | 59 |
+| 7 | Diglett | 79 | 29 |
+| 8 | Slowpoke | 72 | 51 |
+| 9 | Kabuto | 65 | 29 |
+| 10 | Charizard | 61 | 56 |
+
+<!-- END POKEMON LEADERBOARD -->
+
+Updates with the daily sales reports and skips the newest, preliminary source
+date. Reported counts may still be incomplete or revised. Tag-team cards count
+toward each tagged Pokemon, so leaderboard rows are not additive.
+[Download all Pokemon and dates](reports/latest/pokemon-daily.csv).
 
 ## Explore the data
 

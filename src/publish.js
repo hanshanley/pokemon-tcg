@@ -125,7 +125,32 @@ function* csvChunks(rows, fields) {
   if (batch.length) yield csv(batch, fields).slice(header.length);
 }
 
-export async function exportSnapshot(store, directory, now = new Date()) {
+export function updateReadmeLeaderboard(readme, daily, pokemon, latestDate) {
+  const start = '<!-- BEGIN POKEMON LEADERBOARD -->';
+  const end = '<!-- END POKEMON LEADERBOARD -->';
+  const sections = readme.split(`${start}\n`);
+  const rest = sections[1]?.split(`\n${end}`);
+  if (sections.length !== 2 || rest?.length !== 2) throw new Error('Invalid README leaderboard markers.');
+
+  const date = daily.map(row => row.date_source).filter(day => day < latestDate).sort().at(-1);
+  const top = pokemon.filter(row => row.date_source === date && row.units > 0)
+    .sort((a, b) => b.units - a.units ||
+      (a.pokemon_key < b.pokemon_key ? -1 : a.pokemon_key > b.pokemon_key ? 1 : 0)).slice(0, 10);
+  const format = new Intl.NumberFormat('en-US');
+  const name = value => value.replace(/[\r\n]+/g, ' ')
+    .replace(/[&<>\\|`*_[\]~]/g, char => `&#${char.charCodeAt(0)};`);
+  const table = top.length ? [
+    '| Rank | Pokemon | Units sold | Reported transactions |',
+    '| ---: | --- | ---: | ---: |',
+    ...top.map((row, i) => `| ${i + 1} | ${name(row.pokemon)} | ${format.format(row.units)} | ${format.format(row.sale_records)} |`),
+  ].join('\n') : 'No mapped Pokemon sales were reported for this day.';
+  const body = date
+    ? `**${date}** (TCGplayer source date) · ranked by reported units sold.\n\n${table}`
+    : 'No prior source day is available yet. The newest source date is preliminary.';
+  return `${sections[0]}${start}\n\n${body}\n\n${end}${rest[1]}`;
+}
+
+export async function exportSnapshot(store, directory, now = new Date(), { readmePath } = {}) {
   mkdirSync(directory, { recursive: true });
   store.db.exec('BEGIN');
   try {
@@ -168,10 +193,13 @@ export async function exportSnapshot(store, directory, now = new Date()) {
     await pipeline(Readable.from(csvChunks(store.saleValueRows(filters, 'product-daily', true),
       ['date_source','product_id','name','category_id','group_id','set_name',...valueFields])),
     createGzip(), createWriteStream(join(directory, 'product-daily-trading.csv.gz')));
-    writeFileSync(join(directory, 'daily-volume.csv'), csv(store.dailyRows(filters).map(row => ({
+    const daily = store.dailyRows(filters).map(row => ({
       ...row, date_source: row.name,
-    })), ['date_source', 'sale_records', 'units', 'sales_usd', 'products_with_history', 'sku_buckets']));
-    writeFileSync(join(directory, 'pokemon-daily.csv'), csv(store.pokemonDailyRows(filters),
+    }));
+    const pokemon = store.pokemonDailyRows(filters);
+    writeFileSync(join(directory, 'daily-volume.csv'), csv(daily,
+      ['date_source', 'sale_records', 'units', 'sales_usd', 'products_with_history', 'sku_buckets']));
+    writeFileSync(join(directory, 'pokemon-daily.csv'), csv(pokemon,
       ['date_source', 'pokemon_key', 'pokemon', 'sale_records', 'units', 'sales_usd', 'products_with_history']));
     const products = store.db.prepare(`SELECT product_id,min(product_name) AS name,
       sum(quantity) AS units,sum(transaction_count) AS sale_records
@@ -193,6 +221,10 @@ export async function exportSnapshot(store, directory, now = new Date()) {
     writeFileSync(join(directory, 'coverage.json'), `${JSON.stringify(coverage, null, 2)}\n`);
     writeVolumeFigure(directory);
     await writeSalesFigure(directory);
+    if (readmePath) {
+      const readme = readFileSync(readmePath, 'utf8');
+      writeFileSync(readmePath, updateReadmeLeaderboard(readme, daily, pokemon, coverage.last_source_date));
+    }
     store.db.exec('COMMIT');
     return coverage;
   } catch (error) { store.db.exec('ROLLBACK'); throw error; }
@@ -221,7 +253,7 @@ export async function publishGitHub(dataDirectory) {
     command('git', ['config', 'user.name', 'Hans Hanley'], checkout);
     command('git', ['config', 'user.email', '22331826+hanshanley@users.noreply.github.com'], checkout);
     const output = join(checkout, 'reports', 'latest');
-    const coverage = await exportSnapshot(store, output);
+    const coverage = await exportSnapshot(store, output, new Date(), { readmePath: join(checkout, 'README.md') });
     store.close(); store = null;
     const notes = `Snapshot ${coverage.generated_at}: ${coverage.sku_buckets} saved SKU-day buckets. ` +
       'Complete matching SKU and catalog CSV downloads; no local database or individual transactions uploaded. ' +
@@ -232,7 +264,7 @@ export async function publishGitHub(dataDirectory) {
     command('gh', ['release', 'upload', tag, '--repo', repo, '--clobber',
       ...assetFiles.map(name => join(output, name))]);
     command('gh', ['release', 'edit', tag, '--repo', repo, '--notes', notes]);
-    command('git', ['add', '--', ...reportFiles.map(name => `reports/latest/${name}`)], checkout);
+    command('git', ['add', '--', 'README.md', ...reportFiles.map(name => `reports/latest/${name}`)], checkout);
     command('git', ['commit',
       '-m', `Update daily Pokemon volume: ${coverage.generated_at.slice(0, 10)}`], checkout);
     for (let attempt = 0; ; attempt++) {

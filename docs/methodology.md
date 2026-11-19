@@ -158,6 +158,11 @@ asset, not committed as a large Git file. Set and Pokemon daily reports are
 both committed and released. These exports update automatically with every
 native-volume publication; they are not top-product lists.
 
+The same publication updates the README's top ten Pokemon from the daily
+species report. It ranks positive reported units on the latest retained
+source date before the preliminary newest date, breaking ties by species key.
+The leaderboard does not certify day or marketplace completeness.
+
 Set names alone are not unique: English and Japanese categories and different
 groups can share names. Use both numeric IDs when joining or aggregating sets.
 Product and set reports include all observed product types, including trainers,
