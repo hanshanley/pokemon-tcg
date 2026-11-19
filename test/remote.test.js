@@ -1,11 +1,57 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../src/store.js';
 import { publicCheckpoint, collectRemote, retryFailedJobs } from '../src/remote.js';
 import { saveMonthHistory } from '../src/volume.js';
+import { exportSnapshot } from '../src/publish.js';
+import { dailyCsv } from '../src/figures.js';
+import { gunzipSync } from 'node:zlib';
+
+test('historical backfills survive newer rolling windows, public checkpoints and complete downloads', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'pokemon-retained-history-'));
+  t.after(() => rmSync(directory, { recursive: true }));
+  const source = join(directory,'source.sqlite'), destination = join(directory,'public.sqlite');
+  const observed = '2026-11-19T16:00:00.000Z';
+  const store = new Store(source);
+  store.db.prepare(`INSERT INTO catalog_products VALUES
+    (1,3,604,'Fixture set','Charizard','','','','','["Charizard"]','','build',1)`).run();
+  try {
+    for (const end of ['2019-01-31','2026-11-19','2017-05-31']) {
+      const payload = { count: 1, result: [{ skuId: '101', condition: 'Near Mint',
+        variant: 'Normal', language: 'English', buckets: Array.from({length:30},(_,index) => ({
+          bucketStartDate: new Date(Date.parse(end) - index * 86400000).toISOString().slice(0,10),
+          quantitySold: index === 0 ? 3 : 0, transactionCount: index === 0 ? 2 : 0,
+          lowSalePrice: '2', highSalePrice: '3',
+        })) }] };
+      saveMonthHistory(store,1,payload,observed);
+    }
+    assert.equal(publicCheckpoint(source,destination).sku_buckets,90);
+  } finally { store.close(); }
+  const restored = new Store(destination);
+  try {
+    const output = join(directory,'reports');
+    const coverage = await exportSnapshot(restored,output,new Date('2026-11-19T17:00:00Z'));
+    assert.equal(coverage.first_source_date,'2017-05-02');
+    assert.equal(coverage.last_source_date,'2026-11-19');
+    assert.equal(coverage.sku_buckets,90);
+    const rows = dailyCsv(join(output,'daily-trading.csv'));
+    assert.equal(rows.length,90);
+    assert.deepEqual(rows.filter(row => Number(row.units)>0).map(row => row.date_source),
+      ['2017-05-31','2019-01-31','2026-11-19']);
+    for (const row of rows.filter(row => Number(row.units)>0)) {
+      assert.equal(Number(row.priced_sales_lower_usd),6);
+      assert.equal(Number(row.priced_sales_upper_usd),9);
+    }
+    const full = gunzipSync(readFileSync(join(output,'daily-sku-volume.csv.gz'))).toString();
+    assert.equal(full.trimEnd().split(/\r?\n/).length,91);
+    assert.match(full,/2017-05-31/);
+    assert.match(full,/2019-01-31/);
+    assert.match(full,/2026-11-19/);
+  } finally { restored.close(); }
+});
 
 test('remote checkpoints preserve all public buckets and queue state but exclude local transactions and diagnostics', t => {
   const directory = mkdtempSync(join(tmpdir(), 'pokemon-remote-'));

@@ -42,7 +42,8 @@ export function salesPlotRows(rows, coverage) {
       : !available ? 'missing_prices' : priced < units ? 'partial_prices' : 'historical';
     const plotted = status === 'historical';
     return { ...row, plot_status: status,
-      plot_lower_usd: plotted ? low : '', plot_upper_usd: plotted ? high : '' };
+      plot_lower_usd: plotted ? low : '', plot_upper_usd: plotted ? high : '',
+      plot_midpoint_usd: plotted ? low + (high - low) / 2 : '' };
   }).sort((a,b) => a.date_source.localeCompare(b.date_source));
 }
 
@@ -72,19 +73,40 @@ export function salesFigure(rows, coverage, background = '#F7F5F0') {
   const caption = 'Daily observed Pokemon item-value bounds on TCGplayer, across English and Japanese catalog products. ' +
     'Bounds sum SKU-day quantities multiplied by actual low/high unit sale prices; they are not a confidence interval or exact revenue. ' +
     'Shipping and tax are excluded. Only closed source dates supported by verified catalog sweeps and complete price coverage are plotted. ' +
-    'Each vertical mark spans one day’s low and high bounds; days are not interpolated. Unverified dates and incomplete prices remain in the CSV. ' +
+    'The line joins daily range midpoints, not estimated revenue; shading spans the actual low/high bounds. ' +
+    'Only consecutive verified dates are joined; gaps are not interpolated. Unverified dates and incomplete prices remain in the CSV. ' +
     'A catalog sweep is not a certified marketplace total.';
-  const alt = `Pokemon sales value${eligible.length ? ` from ${first} to ${last}` : ': no dates with verified sweeps'}. ${latestNote} ${coverageNote} ${missing} dates omitted for incomplete prices.`;
+  const alt = `Pokemon sales value${eligible.length ? ` from ${first} to ${last}` : ': no dates with verified sweeps'}. A line joins range midpoints with a shaded low-high band, not confidence intervals. Missing or unverified dates break the line and band. ${latestNote} ${coverageNote} ${missing} dates omitted for incomplete prices.`;
   let marks = '';
   for (let tick = 0; tick <= 5; tick++) {
     const value = step * tick;
     marks += `<path d="M100,${y(value)}H1130" class="grid"/>` +
       text(83,y(value) + 6,usd(value),'class="axis" text-anchor="end"');
   }
-  for (const row of visible) {
-    const left = x(row.date_source), low = y(row.plot_lower_usd), high = y(row.plot_upper_usd);
-    marks += `<path data-series="daily-range" d="M${left},${low}V${high}M${left - 4},${low}h8M${left - 4},${high}h8" fill="none" stroke="#C85A3D" stroke-width="2.5"><title>${escape(`${row.date_source}: ${usd(row.plot_lower_usd)} to ${usd(row.plot_upper_usd)}`)}</title></path>`;
+  let segment = [];
+  const point = (row, field) => `${x(row.date_source)},${y(row[field])}`;
+  const flush = () => {
+    if (!segment.length) return;
+    if (segment.length > 1) {
+      const bounds = [...segment.map(row => point(row,'plot_upper_usd')),
+        ...[...segment].reverse().map(row => point(row,'plot_lower_usd'))];
+      marks += `<polygon data-series="daily-band" points="${bounds.join(' ')}" fill="#C85A3D" fill-opacity="0.16"/>`;
+      marks += `<polyline data-series="daily-midpoint" points="${segment.map(row => point(row,'plot_midpoint_usd')).join(' ')}" fill="none" stroke="#C85A3D" stroke-width="2.8" stroke-linejoin="round" stroke-linecap="round"/>`;
+    } else {
+      const row = segment[0];
+      marks += `<path data-series="isolated-range" d="M${point(row,'plot_lower_usd')}V${y(row.plot_upper_usd)}" fill="none" stroke="#C85A3D" stroke-opacity="0.5" stroke-width="2"/>`;
+    }
+    for (const row of segment) {
+      marks += `<circle data-series="daily-observation" cx="${x(row.date_source)}" cy="${y(row.plot_midpoint_usd)}" r="2.6" fill="#C85A3D"><title>${escape(`${row.date_source}: ${usd(row.plot_lower_usd)} to ${usd(row.plot_upper_usd)}; range midpoint ${usd(row.plot_midpoint_usd)}`)}</title></circle>`;
+    }
+    segment = [];
+  };
+  for (const row of data) {
+    if (row.plot_lower_usd === '' || segment.length &&
+        Date.parse(row.date_source) - Date.parse(segment.at(-1).date_source) !== 86400000) flush();
+    if (row.plot_lower_usd !== '') segment.push(row);
   }
+  flush();
   if (!visible.length) marks += text(615,355,'No dates with verified sweep and price coverage; no zero sales inferred.',
     'class="muted" text-anchor="middle"');
   const axisDates = data.filter(row => row.date_source >= first && row.date_source <= last);
@@ -105,10 +127,10 @@ ${text(60,111,eligible.length
   ? `${first === last ? dateLabel(last) : `${dateLabel(first)} to ${dateLabel(last)}`}, ${last.slice(0,4)} | English and Japanese products`
   : 'No closed dates with verified catalog coverage.','class="muted"')}
 ${text(100,143,'USD per source date','class="muted"')}
-${text(1130,143,'Low–high sales value per day','text-anchor="end" style="fill:#C85A3D"')}
+${text(1130,143,'Range midpoint · shaded low–high bounds','text-anchor="end" style="fill:#C85A3D"')}
 ${marks}
 ${text(60,651,latestNote,'class="muted"')}
-${text(60,679,'Blank dates are not zero sales.','class="muted"')}
+${text(60,679,'Line: daily range midpoint. Shading: low–high bounds. Blank dates are not zero sales.','class="muted"')}
 ${text(60,714,'Ranges use actual SKU-day low/high sale prices × quantity; not exact revenue or confidence intervals.','class="note"')}
 ${text(60,740,`${missing ? `${missing} verified dates omitted for incomplete prices. ` : ''}Source timezone unpublished; catalog coverage is not marketplace completeness.`,'class="note"')}
 ${text(60,766,`Source: TCGplayer native SKU-day histories. Last successful source check: ${checked} UTC.`,'class="note"')}

@@ -19,11 +19,12 @@ The catalog covers English and Japanese products; **sales coverage is still
 partial, not a certified total for the whole marketplace**.
 
 <p align="center">
-  <img src="reports/latest/sales-value.png" width="1200" alt="Daily Pokemon sales value: actual low-high price bounds on dates with verified catalog sweeps">
+  <img src="reports/latest/sales-value.png" width="1200" alt="Daily Pokemon sales value: range-midpoint line and shaded low-high bounds on verified catalog sweep dates">
 </p>
 
-Each vertical mark shows one day's item-value bounds from actual low/high SKU sale
-prices, **not exact revenue or a confidence interval**. Only closed dates with
+The line joins daily range midpoints; shading shows item-value bounds from actual
+low/high SKU sale prices, **not exact revenue or a confidence interval**. The
+midpoint is a visual summary of the bounds, not a revenue estimate. Only closed dates with
 verified catalog sweeps and complete price coverage are plotted. Missing and
 partial days are left out, not treated as zero.
 
@@ -34,6 +35,23 @@ The [complete daily trading CSV](reports/latest/daily-trading.csv) lists **units
 bought/sold, transaction counts and item-dollar value** for every retained date.
 A sale and its matching purchase are one trade, not two volumes; a sealed
 product counts as one unit, not the number of cards inside.
+
+### Historical archive
+
+The chart's date range does not limit the archive. Every retained source date is
+kept in SQLite, public checkpoints and the complete CSV downloads, including
+older dates without verified sweep or price coverage. New rolling-window
+collections update overlapping observations without dropping older ones;
+historical backfills have no chart-date cutoff.
+
+As audited on **November 19, 2026**, retained daily observations begin on
+**October 2, 2026**; the main chart begins on **October 6**, when verified sweep
+and complete price coverage first coincide. The connected collector reads the
+source's rolling 30-day daily history; no unlimited historical feed is connected.
+Earlier daily quantities
+or dollars cannot be reconstructed from market-price charts or coarser buckets.
+No earlier observations were found in the 86 published coverage snapshots audited.
+The project keeps accumulating history rather than trimming the archive to 30 days.
 
 Separately, the individual-sale archive retains actual timestamps, quantities
 and unit prices for four products. Its captured dollar totals are exact for

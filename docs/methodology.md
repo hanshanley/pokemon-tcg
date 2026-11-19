@@ -191,17 +191,20 @@ exclude the separate, overlapping individual-sale archive.
 ### Monetary time-series chart
 
 `sales-value.svg` and `sales-value.png` plot the observed daily low/high
-item-dollar bounds. Only dates with prices for **all observed units** enter the
-terracotta historical band; missing/partially priced dates remain gaps.
-Explicit observed zero days remain zero. The same-day estimate is a separate
-blue interval, not a joined line implying a completed-day decline. The source
+item-dollar bounds. The terracotta line joins daily range midpoints, calculated
+as `(low + high) / 2`; the shaded band spans the actual low/high bounds. The
+midpoint is a visual summary, not an estimate of exact or expected revenue.
+Only closed dates with verified catalog sweeps and prices for **all observed units**
+are shown. The line and band join consecutive dates only; missing, unverified
+and partially priced dates remain gaps. Isolated observations retain a midpoint
+dot and vertical range. Explicit observed zero days remain zero. The source
 timezone is unpublished, so the latest retained source date is conservatively
 considered partial even when UTC has already rolled into the following day.
 These are changing historical
 coverage cohorts, not certified whole-market receipts or a confidence interval.
 
 The `-moe` SVG/PNG pair changes only the paper background. `sales-value.csv`
-retains every daily input, its plot status and the plotted bounds, including
+retains every daily input, its plot status, midpoint and plotted bounds, including
 omitted dates. `sales-value.json` contains the caption, alt text and SHA-256
 hashes of both complete source files and every chart/data output. All six
 assets are committed and included in the rolling release. `npm run figures`

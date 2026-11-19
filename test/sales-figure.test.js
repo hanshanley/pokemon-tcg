@@ -24,7 +24,7 @@ test('historical bounds preserve price gaps and omit the partial latest day', ()
   assert.deepEqual(figure.data.map(row => row.plot_status),
     ['historical','partial_prices','historical','partial_day']);
   assert.equal(figure.data[1].plot_lower_usd,'');
-  assert.equal((figure.svg.match(/data-series="daily-range"/g) ?? []).length,2);
+  assert.equal((figure.svg.match(/data-series="daily-observation"/g) ?? []).length,2);
   assert.equal(figure.data[3].plot_lower_usd, '');
   assert.ok(!figure.svg.includes('2026-11-04:'));
   assert.ok(!figure.svg.includes('<polygon'));
@@ -34,10 +34,32 @@ test('historical bounds preserve price gaps and omit the partial latest day', ()
   assert.ok(!/NaN|Infinity/.test(figure.svg));
 });
 
-test('absent dates leave a gap between consistent daily range marks', () => {
+test('absent dates leave a gap instead of joining unobserved days', () => {
   const { svg } = salesFigure([rows[0],rows[2],rows[3]],coverage);
   assert.doesNotMatch(svg, /<polygon|<polyline|2026-11-02:/);
-  assert.equal((svg.match(/data-series="daily-range"/g) ?? []).length,2);
+  assert.equal((svg.match(/data-series="isolated-range"/g) ?? []).length,2);
+});
+
+test('consecutive observed dates have a midpoint line and exact low-high band', () => {
+  const varied = rows.map((row,index) => ({ ...row,
+    priced_sales_lower_usd: 100 + index * 10, priced_sales_upper_usd: 120 + index * 20 }));
+  const { data, svg, caption } = salesFigure(varied,coverage);
+  assert.deepEqual(data.map(row => row.plot_midpoint_usd),[110,125,140,'']);
+  const polyline = svg.match(/data-series="daily-midpoint" points="([^"]+)"/)[1];
+  const polygon = svg.match(/data-series="daily-band" points="([^"]+)"/)[1];
+  const y = value => 570 - value / 250 * 410;
+  assert.equal(polyline, `100,${y(110)} 615,${y(125)} 1130,${y(140)}`);
+  assert.equal(polygon, `100,${y(120)} 615,${y(140)} 1130,${y(160)} 1130,${y(120)} 615,${y(110)} 100,${y(100)}`);
+  assert.doesNotMatch(svg,/data-series="isolated-range"/);
+  assert.match(caption,/midpoints, not estimated revenue/);
+});
+
+test('unverified dates split both the midpoint line and shaded bounds', () => {
+  const verified = { ...coverage, reporting_dates: ['2026-11-01','2026-11-03'] };
+  const { data, svg } = salesFigure(rows,verified);
+  assert.equal(data[1].plot_midpoint_usd,'');
+  assert.doesNotMatch(svg,/data-series="daily-midpoint"|data-series="daily-band"/);
+  assert.equal((svg.match(/data-series="isolated-range"/g) ?? []).length,2);
 });
 
 test('only verified, priced zero days plot at zero, while missing prices stay unavailable', () => {
