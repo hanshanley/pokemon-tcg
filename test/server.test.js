@@ -201,6 +201,30 @@ test('browser lookup drills from historical Pokemon rankings to cards and matchi
   assert.deepEqual(errors, []);
 });
 
+test('dashboard polling preserves applied lookup filters until the draft is submitted', async t => {
+  const { base, store } = await setup(t);
+  lookupFixture(store);
+  const browser = await chromium.launch({ headless: true });
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.clock.install();
+  await page.goto(base);
+  await page.locator('#ranking-date').fill('2026-10-30');
+  await page.getByRole('button', { name: 'Show this day' }).click();
+  await page.waitForFunction(() => document.querySelector('#units').textContent === '34');
+
+  await page.locator('#pokemon').fill('Mewtwo');
+  await page.locator('#from').fill('2026-10-29');
+  const poll = page.waitForRequest(request => new URL(request.url()).pathname === '/api/metrics');
+  await page.clock.fastForward(5000);
+  const params = new URL((await poll).url()).searchParams;
+  assert.equal(params.get('pokemon') ?? '', '');
+  assert.equal(params.get('from'), '2026-10-30');
+  await page.getByRole('button', { name: 'Apply', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#units').textContent === '7');
+  assert.match(await page.locator('#sales-export').getAttribute('href'), /pokemon=Mewtwo/);
+});
+
 test('dashboard API adds products, imports records and exports every matching sale', async t => {
   const { base } = await setup(t);
   assert.equal((await post(base, '/api/products', {

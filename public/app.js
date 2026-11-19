@@ -3,6 +3,8 @@ const number = value => new Intl.NumberFormat('en-US').format(value);
 const money = value => value == null ? '—'
   : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
 let metrics;
+let appliedFilters;
+let metricsQuery;
 let loading = false;
 let catalogOffset = 0;
 let catalogLoading = false;
@@ -71,9 +73,7 @@ function lookupButton(text, { pokemon = '', product_id = '' }) {
     $('#product-id').value = product_id;
     $('#filters [name="kind"]').value = 'all';
     $('#catalog-query').value = '';
-    catalogOffset = 0;
-    void refresh();
-    void refreshCatalog();
+    applyFilters();
     $('#filters').scrollIntoView({ block: 'start' });
   });
   return button;
@@ -88,8 +88,9 @@ function drawChart() {
   const key = $('#measure').value;
   const width = 1000, height = 250, left = 65, bottom = 30, top = 12;
   const max = Math.max(1, ...data.map(d => d[key]));
-  const start = Date.parse(`${$('#from').value}T00:00:00Z`);
-  const end = Date.parse(`${$('#to').value}T00:00:00Z`);
+  const from = metricsQuery.get('from'), to = metricsQuery.get('to');
+  const start = Date.parse(`${from}T00:00:00Z`);
+  const end = Date.parse(`${to}T00:00:00Z`);
   const days = Math.max(1, (end - start) / 86400000 + 1);
   const space = (width - left - 12) / days;
   const ns = 'http://www.w3.org/2000/svg';
@@ -123,7 +124,7 @@ function drawChart() {
     rect.append(title);
   }
   for (const [date, x, anchor] of [
-    [$('#from').value, left, 'start'], [$('#to').value, width - 12, 'end'],
+    [from, left, 'start'], [to, width - 12, 'end'],
   ]) node('text', { x, y: height - 6, 'text-anchor': anchor, class: 'chart-label' }, date);
   $('#chart').replaceChildren(svg);
 }
@@ -132,11 +133,14 @@ async function refresh() {
   if (loading) { refreshPending = true; return; }
   loading = true;
   try {
-    const query = new URLSearchParams(new FormData($('#filters')));
+    const filters = appliedFilters;
+    const query = new URLSearchParams(filters);
     const [data, status] = await Promise.all([
       api(`/api/metrics?${query}`), api('/api/status'),
     ]);
+    if (filters !== appliedFilters) return;
     metrics = data;
+    metricsQuery = query;
     const daily = data.data_kind === 'daily-buckets';
     const selection = [query.get('pokemon')?.trim() && `Pokemon: ${query.get('pokemon').trim()}`,
       query.get('product_id') && `Product ID: ${query.get('product_id')}`].filter(Boolean);
@@ -215,7 +219,7 @@ async function refreshCatalog() {
   try {
     const query = new URLSearchParams(new FormData($('#catalog-search')));
     for (const key of ['pokemon', 'product_id']) {
-      const value = new FormData($('#filters')).get(key);
+      const value = appliedFilters.get(key);
       if (value) query.set(key, value);
     }
     $('#catalog-export').href = `/api/export/catalog.csv?${query}`;
@@ -239,15 +243,21 @@ async function refreshCatalog() {
   }
 }
 
+function applyFilters() {
+  if (!$('#filters').reportValidity()) return;
+  appliedFilters = new URLSearchParams(new FormData($('#filters')));
+  catalogOffset = 0;
+  void refresh();
+  void refreshCatalog();
+}
+
 $('#filters').addEventListener('submit', event => {
-  event.preventDefault(); catalogOffset = 0; void refresh(); void refreshCatalog();
+  event.preventDefault(); applyFilters();
 });
 $('#clear-lookup').addEventListener('click', () => {
   $('#pokemon').value = '';
   $('#product-id').value = '';
-  catalogOffset = 0;
-  void refresh();
-  void refreshCatalog();
+  applyFilters();
 });
 $('#pokemon').addEventListener('change', () => {
   if ($('#pokemon').value.trim()) $('#product-id').value = '';
@@ -259,7 +269,7 @@ $('#ranking-day').addEventListener('submit', event => {
   event.preventDefault();
   $('#from').value = $('#ranking-date').value;
   $('#to').value = $('#ranking-date').value;
-  void refresh();
+  applyFilters();
 });
 $('#catalog-search').addEventListener('submit', event => {
   event.preventDefault(); catalogOffset = 0; void refreshCatalog();
@@ -308,8 +318,7 @@ $('#to').value = today.toISOString().slice(0, 10);
 $('#ranking-date').value = $('#to').value;
 today.setUTCDate(today.getUTCDate() - 29);
 $('#from').value = today.toISOString().slice(0, 10);
-void refresh();
-void refreshCatalog();
+applyFilters();
 void api('/api/pokemon').then(data => {
   $('#pokemon-options').replaceChildren(...data.pokemon.map(name => new Option(name, name)));
 }).catch(error => message(error.message));
