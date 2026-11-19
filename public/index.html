@@ -21,22 +21,29 @@
       <label>Through<input type="date" name="to" id="to" required></label>
       <label>Products<select name="kind"><option value="all">All products</option><option value="single">Singles</option><option value="sealed">Sealed products</option><option value="other">Other products</option></select></label>
       <label>Sales source<select name="source" id="source"><option value="">Automatic</option></select></label>
+      <label>Pokemon (exact species)<input name="pokemon" id="pokemon" list="pokemon-options" placeholder="All Pokemon" maxlength="80"></label>
+      <datalist id="pokemon-options"></datalist>
+      <label>Specific card / product ID<input name="product_id" id="product-id" inputmode="numeric" pattern="[0-9]+" placeholder="All cards"></label>
+      <label>Rank by<select name="ranking" id="rank-by"><option value="units">Units sold</option><option value="transactions">Transactions / sale records</option></select></label>
       <button type="submit" class="secondary">Apply</button>
+      <button type="button" class="secondary" id="clear-lookup">Clear lookup</button>
       <a id="sales-export" class="download" href="/api/export/sales.csv">All sale records CSV</a>
       <a id="daily-export" class="download" href="/api/export/daily.csv">Daily CSV</a>
       <a id="pokemon-export" class="download" href="/api/export/pokemon-daily.csv">Pokemon daily CSV</a>
       <a id="value-export" class="download" href="/api/export/sales-value.csv" hidden>Daily sale-price bounds CSV</a>
     </form>
+    <p id="lookup-scope" class="muted" aria-live="polite"></p>
     <section class="cards" aria-label="Observed sales summary">
       <article><p id="units-label">Observed units sold</p><strong id="units">—</strong></article>
       <article><p id="revenue-label">Observed sales value</p><strong id="revenue">—</strong><small id="price-coverage">USD, excluding shipping &amp; tax</small></article>
       <article><p id="records-label">Observed sale records</p><strong id="records">—</strong><small>Not unique marketplace orders</small></article>
     </section>
     <section class="panel">
-      <h2>Bulk product catalog</h2>
+      <h2>Find a specific card</h2>
+      <p class="muted">Search a card name, set, card number or product ID. Choose View sales to filter the history and every sales download. The Pokemon lookup above also narrows this catalog.</p>
       <p id="catalog-coverage" class="muted">Run npm run catalog to download Pokemon and Pokemon Japan metadata in bulk.</p>
       <form id="catalog-search" class="filters">
-        <label>Product or set<input name="q" id="catalog-query" placeholder="Charizard, Base Set, booster..."></label>
+        <label>Card, set, number or ID<input name="q" id="catalog-query" placeholder="Charizard Base Set 4/102..." maxlength="200"></label>
         <label>Category<select name="category" id="catalog-category"><option value="">Both categories</option><option value="3">Pokemon</option><option value="85">Pokemon Japan</option></select></label>
         <button type="submit" class="secondary">Search catalog</button>
         <a id="catalog-export" class="download" href="/api/export/catalog.csv">Complete matching catalog CSV</a>
@@ -54,8 +61,13 @@
       <p class="muted">Blank dates are not confirmed zero-sales days. Daily history uses the source's date labels; its timezone is not published. Today's and recently reported counts can change.</p>
     </section>
     <div class="columns">
-      <section class="panel"><h2>Most popular Pokemon</h2><p class="muted">Observed singles only. Bulk catalog tags match species names on HP-bearing cards; manual tags override them. Unmapped cards are excluded, and multi-Pokemon cards count toward each tag.</p><div id="pokemon-rank"></div></section>
-      <section class="panel"><h2>Best-selling products</h2><p class="muted">Ranked by saved units for the selected source; includes sealed products.</p><div id="product-rank"></div></section>
+      <section class="panel"><h2>Most popular Pokemon</h2><p id="ranking-period" class="muted"></p>
+        <form id="ranking-day" class="filters">
+          <label>Compare a single day<input type="date" id="ranking-date" required></label>
+          <button type="submit" class="secondary">Show this day</button>
+        </form>
+        <p class="muted">Singles only, within the selected lookup. Choose a Pokemon to explore its cards. Unmapped cards are excluded; multi-Pokemon cards count toward each tag, so species totals are not additive. Native history has daily, not intraday, resolution.</p><div id="pokemon-rank"></div></section>
+      <section class="panel"><h2>Best-selling products</h2><p class="muted">Ranked by the selected measure, source and dates; includes sealed products unless filtered.</p><div id="product-rank"></div></section>
     </div>
     <section class="panel">
       <h2>Diagnostic sample products</h2>

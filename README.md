@@ -90,6 +90,14 @@ not the remote release automatically. Collection, checkpoint restoration,
 authorized transaction imports and SQL examples are documented in
 [operations](docs/methodology.md#daily-github-updates).
 
+Look up an exact Pokemon using the autocomplete, or find a card by name, set,
+card number or TCGplayer product ID and choose **View sales**. The selection
+filters summaries, daily history, actual sale-price bounds and complete sales
+downloads. Clear the lookup to return to the full dataset.
+The Pokemon leaderboard supports any retained date range, a **Show this day**
+shortcut, and ranking by units sold or transactions. Click a Pokemon to explore
+its cards. Native history is daily, not intraday; unavailable history is not zero.
+
 ```sh
 npm run figures    # Regenerate the overview from the published CSVs
 npm run check

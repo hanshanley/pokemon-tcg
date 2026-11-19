@@ -4,6 +4,20 @@ import { dirname } from 'node:path';
 import { createHash } from 'node:crypto';
 
 export const volumeSource = 'tcgplayer-daily';
+const catalogPokemon = "CASE WHEN p.kind='single' AND p.pokemon<>'[]' THEN p.pokemon ELSE c.pokemon END";
+
+function lookupSelection({ pokemon = '', product_id } = {}) {
+  if (typeof pokemon !== 'string' || pokemon.length > 80) throw new Error('Invalid Pokemon lookup.');
+  let productId = null;
+  if (product_id != null && product_id !== '') {
+    if (!['string', 'number'].includes(typeof product_id) || !/^\d+$/.test(String(product_id)) ||
+        !Number.isSafeInteger(Number(product_id)) || Number(product_id) < 1) {
+      throw new Error('Product ID must be a positive integer.');
+    }
+    productId = Number(product_id);
+  }
+  return { pokemon: pokemon.trim(), productId };
+}
 
 export function productIdFromUrl(value) {
   const url = new URL(value);
@@ -379,8 +393,9 @@ export class Store {
     return source;
   }
 
-  salesFilter({ from, to, kind = 'all', source } = {}) {
+  salesFilter({ from, to, kind = 'all', source, pokemon, product_id } = {}) {
     const conditions = [], params = [];
+    const selection = lookupSelection({ pokemon, product_id });
     const daily = this.salesSource(source) === volumeSource;
     for (const [name, value] of [['from', from], ['to', to]]) {
       if (value) {
@@ -397,6 +412,18 @@ export class Store {
     if (from && to && from > to) throw new Error('Start date must not follow end date.');
     if (!['all', 'single', 'sealed', 'other'].includes(kind)) throw new Error('Invalid product type.');
     if (kind !== 'all') { conditions.push('s.kind = ?'); params.push(kind); }
+    if (selection.productId != null) {
+      conditions.push('s.product_id = ?'); params.push(selection.productId);
+    }
+    if (selection.pokemon) {
+      // Resolve tags once per product rather than once per retained sales bucket.
+      const products = this.salesSource(source) === 'snapshot'
+        ? "SELECT p.id FROM products p,json_each(p.pokemon) species WHERE p.kind='single'"
+        : `SELECT c.product_id FROM catalog_products c LEFT JOIN products p ON p.id=c.product_id,
+          json_each(${catalogPokemon}) species WHERE 1=1`;
+      conditions.push(`s.kind='single' AND s.product_id IN (${products} AND lower(species.value)=lower(?))`);
+      params.push(selection.pokemon);
+    }
     conditions.push('s.source = ?');
     params.push(this.salesSource(source));
     return { where: `WHERE ${conditions.join(' AND ')}`, params };
@@ -452,6 +479,9 @@ export class Store {
       throw new Error('Invalid ranking limit.');
     }
     const limit = rankingLimit ? `LIMIT ${rankingLimit}` : '';
+    const ranking = filters?.ranking ?? 'units';
+    if (!['units', 'transactions'].includes(ranking)) throw new Error('Invalid ranking measure.');
+    const order = ranking === 'transactions' ? 'sale_records DESC, units DESC' : 'units DESC';
     const source = this.salesSource(filters?.source);
     const daily = source === volumeSource;
     const relation = daily ? 'reported_product_volume' : 'observed_sales';
@@ -471,6 +501,7 @@ export class Store {
         : 'Imported bulk transactions; marketplace-wide completeness remains unverified.',
       sales_source: source,
       data_kind: daily ? 'daily-buckets' : 'transactions',
+      ranking,
       available_sources: ['snapshot', ...this.db.prepare(
         'SELECT DISTINCT source FROM bulk_sales ORDER BY source'
       ).all().map(row => row.source),
@@ -480,10 +511,10 @@ export class Store {
       ...(daily ? { price_volume: this.saleValueRows(filters)[0] } : {}),
       daily: this.dailyRows(filters),
       products: format(query(`SELECT s.product_id, min(s.product_name) AS name, ${sum}
-        FROM ${relation} s ${rankingWhere} GROUP BY s.product_id ORDER BY units DESC, name ${limit}`)),
+        FROM ${relation} s ${rankingWhere} GROUP BY s.product_id ORDER BY ${order}, name ${limit}`)),
       pokemon: format(query(`SELECT min(j.value) AS name, ${sum}
         FROM ${relation} s, json_each(s.pokemon) j
-        ${rankingWhere} AND s.kind='single' GROUP BY lower(j.value) ORDER BY units DESC, name ${limit}`)),
+        ${rankingWhere} AND s.kind='single' GROUP BY lower(j.value) ORDER BY ${order}, name ${limit}`)),
       catalog: this.catalogSummary(source),
       tracked_products: this.products(),
       recent_collections: this.db.prepare(`
@@ -533,28 +564,45 @@ export class Store {
       ORDER BY s.date_source,s.product_id,s.sku_id`).iterate(...params);
   }
 
-  catalogRows({ q = '', category, limit = 100, offset = 0 } = {}, all = false) {
+  pokemonNames() {
+    return this.db.prepare(`SELECT min(j.value) AS name FROM (
+      SELECT ${catalogPokemon} AS pokemon FROM catalog_products c LEFT JOIN products p ON p.id=c.product_id
+      UNION ALL SELECT pokemon FROM products WHERE kind='single'
+    ) tags, json_each(tags.pokemon) j GROUP BY lower(j.value) ORDER BY lower(j.value)`)
+      .all().map(row => row.name);
+  }
+
+  catalogRows({ q = '', category, limit = 100, offset = 0, pokemon, product_id } = {}, all = false) {
     if (typeof q !== 'string' || q.length > 200) throw new Error('Invalid catalog search.');
+    const selection = lookupSelection({ pokemon, product_id });
     limit = Number(limit); offset = Number(offset);
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200 ||
         !Number.isSafeInteger(offset) || offset < 0) throw new Error('Invalid catalog pagination.');
-    const conditions = ['is_current=1'], params = [];
+    const conditions = ['c.is_current=1'], params = [];
     if (category) {
       if (![3, 85].includes(Number(category))) throw new Error('Invalid Pokemon category.');
-      conditions.push('category_id=?'); params.push(Number(category));
+      conditions.push('c.category_id=?'); params.push(Number(category));
     }
-    if (q) {
-      conditions.push("(name LIKE ? ESCAPE '\\' OR set_name LIKE ? ESCAPE '\\')");
-      const pattern = `%${q.replace(/[\\%_]/g, '\\$&')}%`;
-      params.push(pattern, pattern);
+    if (selection.productId != null) {
+      conditions.push('c.product_id=?'); params.push(selection.productId);
+    }
+    if (selection.pokemon) {
+      conditions.push(`EXISTS (SELECT 1 FROM json_each(${catalogPokemon}) species WHERE lower(species.value)=lower(?))`);
+      params.push(selection.pokemon);
+    }
+    for (const term of q.trim().split(/\s+/).filter(Boolean)) {
+      conditions.push("(c.name LIKE ? ESCAPE '\\' OR c.set_name LIKE ? ESCAPE '\\' OR c.number LIKE ? ESCAPE '\\' OR cast(c.product_id AS TEXT)=?)");
+      const pattern = `%${term.replace(/[\\%_]/g, '\\$&')}%`;
+      params.push(pattern, pattern, pattern, term);
     }
     const where = `WHERE ${conditions.join(' AND ')}`;
-    const total = this.db.prepare(`SELECT count(*) AS n FROM catalog_products ${where}`).get(...params).n;
-    const rows = this.db.prepare(`SELECT * FROM catalog_products ${where}
-      ORDER BY name, product_id ${all ? '' : 'LIMIT ? OFFSET ?'}`)
+    const relation = 'catalog_products c LEFT JOIN products p ON p.id=c.product_id';
+    const total = this.db.prepare(`SELECT count(*) AS n FROM ${relation} ${where}`).get(...params).n;
+    const rows = this.db.prepare(`SELECT c.*, ${catalogPokemon} AS lookup_pokemon FROM ${relation} ${where}
+      ORDER BY c.name, c.product_id ${all ? '' : 'LIMIT ? OFFSET ?'}`)
       .all(...params, ...(all ? [] : [limit, offset]));
     return { total, offset: all ? 0 : offset, limit: all ? total : limit,
-      products: rows.map(row => ({ ...row, pokemon: JSON.parse(row.pokemon),
+      products: rows.map(({ lookup_pokemon, ...row }) => ({ ...row, pokemon: JSON.parse(lookup_pokemon),
         url: `https://www.tcgplayer.com/product/${row.product_id}` })) };
   }
 }

@@ -117,12 +117,13 @@ export function makeServer(store, {
         return send(404, { error: 'Not found.' });
       }
       if (request.method !== 'GET') return send(405, { error: 'Method not allowed.' });
-      const filters = Object.fromEntries(['from', 'to', 'kind', 'source'].flatMap(key =>
+      const filters = Object.fromEntries(['from', 'to', 'kind', 'source', 'pokemon', 'product_id', 'ranking'].flatMap(key =>
         url.searchParams.has(key) ? [[key, url.searchParams.get(key)]] : []));
       if (url.pathname === '/api/status') return send(200, { ...state,
         volume_run: store.db.prepare('SELECT * FROM volume_runs ORDER BY date_utc DESC LIMIT 1').get() ?? null });
       if (url.pathname === '/api/metrics') return send(200, store.metrics(filters, { rankingLimit: 25 }));
-      const catalogFilters = Object.fromEntries(['q', 'category', 'limit', 'offset'].flatMap(key =>
+      if (url.pathname === '/api/pokemon') return send(200, { pokemon: store.pokemonNames() });
+      const catalogFilters = Object.fromEntries(['q', 'category', 'limit', 'offset', 'pokemon', 'product_id'].flatMap(key =>
         url.searchParams.has(key) ? [[key, url.searchParams.get(key)]] : []));
       if (url.pathname === '/api/catalog') return send(200, store.catalogRows(catalogFilters));
       if (url.pathname === '/api/export/catalog.csv') {

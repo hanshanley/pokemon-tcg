@@ -6,6 +6,8 @@ let metrics;
 let loading = false;
 let catalogOffset = 0;
 let catalogLoading = false;
+let refreshPending = false;
+let catalogPending = false;
 
 function message(text) { $('#message').textContent = text; }
 
@@ -26,7 +28,7 @@ function table(target, headers, rows) {
   wrapper.className = 'table-wrap';
   if (!rows.length) {
     wrapper.className = 'empty';
-    wrapper.textContent = 'No observed records in this date range.';
+    wrapper.textContent = 'No matching records for this lookup and date range.';
   } else {
     const table = document.createElement('table');
     const thead = table.createTHead();
@@ -57,6 +59,24 @@ function link(product) {
   a.target = '_blank';
   a.rel = 'noopener noreferrer';
   return a;
+}
+
+function lookupButton(text, { pokemon = '', product_id = '' }) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'lookup-link';
+  button.textContent = text;
+  button.addEventListener('click', () => {
+    $('#pokemon').value = pokemon;
+    $('#product-id').value = product_id;
+    $('#filters [name="kind"]').value = 'all';
+    $('#catalog-query').value = '';
+    catalogOffset = 0;
+    void refresh();
+    void refreshCatalog();
+    $('#filters').scrollIntoView({ block: 'start' });
+  });
+  return button;
 }
 
 function drawChart() {
@@ -109,7 +129,7 @@ function drawChart() {
 }
 
 async function refresh() {
-  if (loading) return;
+  if (loading) { refreshPending = true; return; }
   loading = true;
   try {
     const query = new URLSearchParams(new FormData($('#filters')));
@@ -118,6 +138,12 @@ async function refresh() {
     ]);
     metrics = data;
     const daily = data.data_kind === 'daily-buckets';
+    const selection = [query.get('pokemon')?.trim() && `Pokemon: ${query.get('pokemon').trim()}`,
+      query.get('product_id') && `Product ID: ${query.get('product_id')}`].filter(Boolean);
+    $('#lookup-scope').textContent = `${selection.join(' / ') || 'All Pokemon and products'}. Sales summaries, history and sales downloads use this selection.`;
+    const rankingMeasure = data.ranking === 'transactions'
+      ? daily ? 'reported transactions' : 'observed sale records' : 'units sold';
+    $('#ranking-period').textContent = `${query.get('from')} through ${query.get('to')}. Top 25 by ${rankingMeasure} for the selected source.`;
     $('#measure').querySelector('[value="sales_usd"]').disabled = daily;
     if (daily) $('#measure').value = 'units';
     $('#coverage').textContent = data.coverage;
@@ -161,10 +187,10 @@ async function refresh() {
     $('#schedule').textContent = status.browser_sampling_enabled
       ? `Diagnostic sampling only. Next: ${status.next_run ?? 'not scheduled'}. ${status.error ?? ''}`
       : 'Per-product page sampling is disabled. Daily SKU collection uses a resumable API queue in one storefront context; transaction feeds remain separate.';
-    table('#pokemon-rank', ['Pokemon', 'Units', 'USD'], data.pokemon.slice(0, 10)
-      .map(p => [p.name, number(p.units), money(p.sales_usd)]));
-    table('#product-rank', ['Product', 'Units', 'USD'], data.products.slice(0, 10)
-      .map(p => [p.name, number(p.units), money(p.sales_usd)]));
+    table('#pokemon-rank', ['Pokemon', 'Units', daily ? 'Transactions' : 'Sale records', 'USD'], data.pokemon.slice(0, 25)
+      .map(p => [lookupButton(p.name, { pokemon: p.name }), number(p.units), number(p.sale_records), money(p.sales_usd)]));
+    table('#product-rank', ['Product', 'Units', daily ? 'Transactions' : 'Sale records', 'USD'], data.products.slice(0, 25)
+      .map(p => [lookupButton(p.name, { product_id: p.product_id }), number(p.units), number(p.sale_records), money(p.sales_usd)]));
     table('#tracked', ['Product', 'Type', 'Species tags', 'Last result'], data.tracked_products
       .map(p => [link(p), p.kind, p.pokemon.join(', ') || '—', p.last_status ?? 'Not collected']));
     table('#health', ['Product / finished UTC', 'Result', 'Rows seen / added', 'Coverage notes'],
@@ -177,31 +203,64 @@ async function refresh() {
       }));
     drawChart();
   } catch (error) { message(error.message); }
-  finally { loading = false; }
+  finally {
+    loading = false;
+    if (refreshPending) { refreshPending = false; void refresh(); }
+  }
 }
 
 async function refreshCatalog() {
-  if (catalogLoading) return;
+  if (catalogLoading) { catalogPending = true; return; }
   catalogLoading = true;
   try {
     const query = new URLSearchParams(new FormData($('#catalog-search')));
+    for (const key of ['pokemon', 'product_id']) {
+      const value = new FormData($('#filters')).get(key);
+      if (value) query.set(key, value);
+    }
     $('#catalog-export').href = `/api/export/catalog.csv?${query}`;
     query.set('offset', catalogOffset);
     query.set('limit', 100);
     const data = await api(`/api/catalog?${query}`);
-    table('#catalog-products', ['Product', 'Set', 'Category', 'Species tags'],
+    table('#catalog-products', ['Product', 'Set', 'Number', 'Category', 'Pokemon', 'History'],
       data.products.map(product => [link(product), product.set_name,
-        product.category_id === 3 ? 'Pokemon' : 'Pokemon Japan', product.pokemon.join(', ') || 'Unmapped / not a Pokemon card']));
+        product.number || '—', product.category_id === 3 ? 'Pokemon' : 'Pokemon Japan',
+        product.pokemon.join(', ') || 'Unmapped / not a Pokemon card',
+        lookupButton('View sales', { product_id: product.product_id })]));
     $('#catalog-page').textContent = data.total
       ? `${number(data.offset + 1)}–${number(data.offset + data.products.length)} of ${number(data.total)}`
       : 'No matching catalog products.';
     $('#catalog-previous').disabled = !catalogOffset;
     $('#catalog-next').disabled = catalogOffset + data.products.length >= data.total;
   } catch (error) { message(error.message); }
-  finally { catalogLoading = false; }
+  finally {
+    catalogLoading = false;
+    if (catalogPending) { catalogPending = false; void refreshCatalog(); }
+  }
 }
 
-$('#filters').addEventListener('submit', event => { event.preventDefault(); void refresh(); });
+$('#filters').addEventListener('submit', event => {
+  event.preventDefault(); catalogOffset = 0; void refresh(); void refreshCatalog();
+});
+$('#clear-lookup').addEventListener('click', () => {
+  $('#pokemon').value = '';
+  $('#product-id').value = '';
+  catalogOffset = 0;
+  void refresh();
+  void refreshCatalog();
+});
+$('#pokemon').addEventListener('change', () => {
+  if ($('#pokemon').value.trim()) $('#product-id').value = '';
+});
+$('#product-id').addEventListener('change', () => {
+  if ($('#product-id').value) $('#pokemon').value = '';
+});
+$('#ranking-day').addEventListener('submit', event => {
+  event.preventDefault();
+  $('#from').value = $('#ranking-date').value;
+  $('#to').value = $('#ranking-date').value;
+  void refresh();
+});
 $('#catalog-search').addEventListener('submit', event => {
   event.preventDefault(); catalogOffset = 0; void refreshCatalog();
 });
@@ -246,8 +305,12 @@ $('#import').addEventListener('click', async () => {
 });
 const today = new Date();
 $('#to').value = today.toISOString().slice(0, 10);
+$('#ranking-date').value = $('#to').value;
 today.setUTCDate(today.getUTCDate() - 29);
 $('#from').value = today.toISOString().slice(0, 10);
 void refresh();
 void refreshCatalog();
-setInterval(() => { void refresh(); }, 5000);
+void api('/api/pokemon').then(data => {
+  $('#pokemon-options').replaceChildren(...data.pokemon.map(name => new Option(name, name)));
+}).catch(error => message(error.message));
+setInterval(() => { if (!loading) void refresh(); }, 5000);

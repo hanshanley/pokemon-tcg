@@ -43,6 +43,7 @@ td:first-child, th:first-child { padding-left: 0; }
 td:last-child, th:last-child { padding-right: 0; }
 .number { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 td a { color: #345946; text-underline-offset: 3px; }
+.lookup-link { background: none; border: 0; border-radius: 0; padding: 0; min-height: 32px; color: #345946; text-align: left; text-decoration: underline; text-underline-offset: 3px; white-space: normal; }
 .warning { max-width: 540px; color: #805022; font-size: 12px; overflow-wrap: anywhere; }
 .add-form label:first-child { flex: 2; min-width: 240px; }
 .add-form label:nth-child(2) { flex: 1; min-width: 180px; }
