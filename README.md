@@ -48,16 +48,16 @@ The two datasets are never added together.
 
 | Rank | Pokemon | Units sold | Reported transactions |
 | ---: | --- | ---: | ---: |
-| 1 | Pikachu | 5,718 | 3,526 |
-| 2 | Eevee | 1,276 | 703 |
-| 3 | Mewtwo | 1,114 | 650 |
-| 4 | Mew | 1,097 | 531 |
-| 5 | Gengar | 947 | 527 |
-| 6 | Meowth | 915 | 652 |
-| 7 | Charizard | 756 | 547 |
-| 8 | Umbreon | 675 | 359 |
-| 9 | Greninja | 649 | 396 |
-| 10 | Moltres | 614 | 399 |
+| 1 | Pikachu | 5,763 | 3,551 |
+| 2 | Eevee | 1,291 | 717 |
+| 3 | Mewtwo | 1,129 | 665 |
+| 4 | Mew | 1,106 | 538 |
+| 5 | Gengar | 961 | 537 |
+| 6 | Meowth | 921 | 658 |
+| 7 | Charizard | 768 | 559 |
+| 8 | Umbreon | 683 | 366 |
+| 9 | Greninja | 651 | 398 |
+| 10 | Venusaur | 621 | 178 |
 
 <!-- END POKEMON LEADERBOARD -->
 
