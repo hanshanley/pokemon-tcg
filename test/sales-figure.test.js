@@ -8,6 +8,7 @@ import { csv } from '../src/store.js';
 import { salesPlotRows, salesFigure, writeSalesFigure } from '../src/sales-figure.js';
 
 const coverage = {
+  reporting_dates: ['2026-11-01','2026-11-02','2026-11-03'],
   last_successful_check_at: '2026-11-04T18:00:00Z',
   sweep: { products_checked: 9, products_expected: 10, products_failed: 1 },
 };
@@ -16,7 +17,7 @@ const rows = [1,2,3,4].map(date => ({
   priced_sales_lower_usd: 100, priced_sales_upper_usd: 120,
 }));
 
-test('historical bounds preserve price gaps and never connect the partial latest day', () => {
+test('historical bounds preserve price gaps and omit the partial latest day', () => {
   const data = rows.map(row => ({ ...row }));
   Object.assign(data[1], { priced_units: 5, unpriced_units: 5 });
   const figure = salesFigure(data,coverage);
@@ -24,7 +25,8 @@ test('historical bounds preserve price gaps and never connect the partial latest
     ['historical','partial_prices','historical','partial_day']);
   assert.equal(figure.data[1].plot_lower_usd,'');
   assert.equal((figure.svg.match(/<polyline data-series="historical"/g) ?? []).length,4);
-  assert.equal((figure.svg.match(/data-series="partial-day"/g) ?? []).length,1);
+  assert.equal(figure.data[3].plot_lower_usd, '');
+  assert.ok(!figure.svg.includes('2026-11-04:'));
   assert.ok(!figure.svg.includes('<polygon'));
   assert.ok(figure.alt.includes('9 / 10 products checked; 1 failed'));
   assert.ok(figure.alt.includes('1 dates omitted'));
@@ -38,23 +40,25 @@ test('an entirely absent source date breaks the historical band', () => {
   assert.equal((svg.match(/<polyline /g) ?? []).length,4);
 });
 
-test('only explicit priced zero days plot at zero, while missing prices stay unavailable', () => {
+test('only verified, priced zero days plot at zero, while missing prices stay unavailable', () => {
   const zero = { ...rows[0], units: 0, priced_units: 0, unpriced_units: 0,
     priced_sales_lower_usd: 0, priced_sales_upper_usd: 0 };
-  assert.equal(salesPlotRows([zero],coverage)[0].plot_lower_usd,0);
-  assert.ok(salesFigure([zero],coverage).svg.includes('2026-11-01: partial day, $0 to $0'));
+  assert.equal(salesPlotRows([zero],coverage)[0].plot_lower_usd,'');
+  assert.equal(salesPlotRows([zero, rows[3]],coverage)[0].plot_lower_usd,0);
+  assert.ok(salesFigure([zero, rows[3]],coverage).svg.includes('2026-11-01: $0 to $0'));
   const absent = { ...rows[0], priced_units: '', priced_sales_lower_usd: '', priced_sales_upper_usd: '' };
-  assert.equal(salesPlotRows([absent],coverage)[0].plot_status,'missing_prices');
+  assert.equal(salesPlotRows([absent, rows[3]],coverage)[0].plot_status,'missing_prices');
   assert.ok(salesFigure([absent],coverage).svg.includes('no zero sales inferred'));
   assert.throws(() => salesFigure([],coverage),/No observed/);
 });
 
-test('the latest source day remains preliminary across UTC midnight with an unpublished source timezone', () => {
-  const afterMidnight = { ...coverage, last_successful_check_at: '2026-11-05T00:15:00Z' };
-  assert.equal(salesPlotRows(rows,afterMidnight).at(-1).plot_status,'partial_day');
-  const { svg } = salesFigure(rows,afterMidnight);
-  assert.equal((svg.match(/data-series="partial-day"/g) ?? []).length,1);
-  assert.ok(svg.includes('Nov 4): $100 to $120; partial day'));
+test('crossing midnight does not make an older but incompletely swept day eligible', () => {
+  const afterMidnight = { ...coverage, reporting_dates: ['2026-11-01','2026-11-02'],
+    last_successful_check_at: '2026-11-05T00:15:00Z' };
+  const { data, svg } = salesFigure(rows,afterMidnight);
+  assert.deepEqual(data.map(row => row.plot_status), ['historical','historical','unverified_sweep','partial_day']);
+  assert.ok(!svg.includes('2026-11-03:'));
+  assert.ok(!svg.includes('2026-11-04:'));
 });
 
 test('chart inputs reject inconsistent quantities, bounds, dates and duplicates', () => {
@@ -88,7 +92,7 @@ test('the publication bundle includes actual PNGs, replay data, captions and ver
   }
   assert.equal(metadata.rows,4);
   assert.ok(metadata.caption.includes('not a confidence interval'));
-  assert.ok(metadata.alt.includes('partial day'));
+  assert.ok(metadata.alt.includes('newest or without a verified catalog sweep'));
   assert.ok(readFileSync(join(directory,'sales-value.csv'),'utf8').includes('"partial_day"'));
   for (const name of ['sales-value.png','sales-value-moe.png']) {
     const bytes = readFileSync(join(directory,name));

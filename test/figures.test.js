@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { dailyTradingRows, volumeFigure } from '../src/figures.js';
 
 const coverage = {
+  reporting_dates: ['2026-11-01','2026-11-02','2026-11-03'],
   units: 6, transactions: 4, last_successful_check_at: '2026-11-03T12:00:00Z',
   price_volume: { priced_units: 3, priced_sales_lower_usd: 14, priced_sales_upper_usd: 20 },
   sweep: { date_utc: '2026-11-03', status: 'paused', products_checked: 4, products_expected: 10 },
@@ -17,7 +18,7 @@ const values = daily.map((row, index) => ({
 
 test('volume figure separates priced-subset bounds from unit totals and leaves missing prices as gaps', () => {
   const svg = volumeFigure(daily, values, coverage);
-  assert.ok(svg.includes('6 observed units and 4 reported transactions. Priced subset: $14 to $20'));
+  assert.ok(svg.includes('6 observed units and 4 reported transactions on verified-sweep dates. Priced subset: $14 to $20'));
   assert.ok(svg.includes('3 of 6 observed units (50.0%)'));
   assert.equal((svg.match(/<polygon /g) ?? []).length, 2);
   assert.ok(!svg.includes('2026-11-02: $0'));
@@ -30,6 +31,12 @@ test('volume figure separates priced-subset bounds from unit totals and leaves m
   assert.match(table, /2026-11-02<\/text>[^\n]*>Unavailable<\/text>/);
   assert.ok(table.includes('Units bought/sold'));
   assert.ok(!/NaN|Infinity/.test(svg));
+});
+
+test('volume figure omits an incomplete day from totals and its recent-day table', () => {
+  const svg = volumeFigure(daily, values, { ...coverage, reporting_dates: ['2026-11-01'] });
+  assert.ok(svg.includes('2 observed units and 1 reported transactions on verified-sweep dates'));
+  assert.doesNotMatch(svg, /2026-11-02|>2026-11-03</);
 });
 
 test('volume figure rejects absent history and handles a single zero day without inventing revenue', () => {

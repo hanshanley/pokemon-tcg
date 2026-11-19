@@ -40,7 +40,15 @@ export function dailyCsv(path) {
 
 export function volumeFigure(daily, values, coverage) {
   if (!daily.length) throw new Error('No observed daily volume to plot.');
-  const points = dailyTradingRows(daily, values)
+  const verified = new Set(coverage.reporting_dates ?? []);
+  const selected = daily.filter(row => verified.has(row.date_source));
+  if (!selected.length) return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="160" viewBox="0 0 1200 160" role="img">
+<title>Observed Pokemon sales volume</title>
+<rect width="1200" height="160" fill="#fafbfc"/>
+<text x="38" y="58" font-family="sans-serif" font-size="24">No source dates with a verified catalog sweep yet.</text>
+<text x="38" y="104" font-family="sans-serif" font-size="18">Unverified observations remain in the downloadable daily report.</text>
+</svg>\n`;
+  const points = dailyTradingRows(selected, values)
     .map(row => ({ ...row, time: Date.parse(`${row.date_source}T00:00:00Z`) }))
     .sort((a, b) => a.time - b.time);
   const prices = new Map(values.map(row => [row.date_source, row]));
@@ -99,9 +107,11 @@ export function volumeFigure(daily, values, coverage) {
     }
     return markup;
   };
-  const price = coverage.price_volume, priced = Number(price.priced_units);
-  const percent = coverage.units ? (priced / coverage.units * 100).toFixed(1) : '0.0';
-  const bounds = priced ? `$${compact(price.priced_sales_lower_usd)} - $${compact(price.priced_sales_upper_usd)}`
+  const sum = field => points.reduce((total, row) => total + Number(row[field] ?? 0), 0);
+  const units = sum('units'), transactions = sum('sale_records'), priced = sum('priced_units');
+  const lower = sum('priced_sales_lower_usd'), upper = sum('priced_sales_upper_usd');
+  const percent = units ? (priced / units * 100).toFixed(1) : '0.0';
+  const bounds = priced ? `$${compact(lower)} - $${compact(upper)}`
     : 'Unavailable';
   const sweep = coverage.sweep;
   const sourceCheck = coverage.last_successful_check_at?.replace('T', ' ').slice(0, 16) ?? 'unknown';
@@ -121,17 +131,17 @@ export function volumeFigure(daily, values, coverage) {
   }).join('\n');
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="${figureHeight}" viewBox="0 0 1200 ${figureHeight}" role="img" aria-labelledby="title description">
 <title id="title">Observed Pokemon sales volume</title>
-<desc id="description">${xml(`${number(coverage.units)} observed units and ${number(coverage.transactions)} reported transactions. Priced subset: ${priced ? `$${number(price.priced_sales_lower_usd)} to $${number(price.priced_sales_upper_usd)}` : 'unavailable'}. Coverage is incomplete; missing prices are gaps, not zero revenue.`)}</desc>
+<desc id="description">${xml(`${number(units)} observed units and ${number(transactions)} reported transactions on verified-sweep dates. Priced subset: ${priced ? `$${number(lower)} to $${number(upper)}` : 'unavailable'}. Missing dates and prices are gaps, not zero.`)}</desc>
 <style>text{font-family:Arial,Helvetica,sans-serif;fill:#25333e;font-size:14px}.heading{font-size:17px;font-weight:600}.muted{fill:#66727c;font-size:12px}.axis{fill:#66727c;font-size:11px}.value{font-size:30px;font-weight:600}.grid{stroke:#e5e9ec;stroke-width:1}</style>
 <rect width="1200" height="${figureHeight}" fill="#fafbfc"/>
 ${text(38, 35, 'Observed Pokemon sales volume', 'class="heading"')}
 ${text(38, 57, `${points[0].date_source} to ${points.at(-1).date_source} | Source checked ${sourceCheck} UTC`, 'class="muted"')}
-${text(38, 93, 'Retained-period units', 'class="muted"')}${text(38, 128, number(coverage.units), 'class="value"')}
-${text(330, 93, 'Retained-period transactions', 'class="muted"')}${text(330, 128, number(coverage.transactions), 'class="value"')}
+${text(38, 93, 'Units on verified-sweep dates', 'class="muted"')}${text(38, 128, number(units), 'class="value"')}
+${text(330, 93, 'Transactions on verified-sweep dates', 'class="muted"')}${text(330, 128, number(transactions), 'class="value"')}
 ${text(670, 93, 'Item-value bounds: priced subset, not total revenue', 'class="muted"')}${text(670, 128, bounds, 'class="value"')}
 ${plot(38, false)}${plot(642, true)}
-${text(38, 481, `Price coverage: ${number(priced)} of ${number(coverage.units)} observed units (${percent}%). Missing price bounds appear as gaps.`, 'class="muted"')}
-${text(38, 504, 'Coverage differs across dates. Recent dates can be partial; neither chart is a certified marketplace-wide trend.', 'class="muted"')}
+${text(38, 481, `Price coverage: ${number(priced)} of ${number(units)} observed units (${percent}%). Missing price bounds appear as gaps.`, 'class="muted"')}
+${text(38, 504, `${daily.length - selected.length} dates without verified sweeps omitted. Catalog coverage is not certified marketplace coverage.`, 'class="muted"')}
 ${text(38, 527, sweep ? `Latest sweep (${sweep.date_utc}): ${sweep.status}; ${number(sweep.products_checked)} / ${number(sweep.products_expected)} products checked.`
     : 'Catalog-wide sweep completeness is unverified.', 'class="muted"')}
 ${text(38, 570, 'Recent daily quantities and dollar value', 'class="heading"')}

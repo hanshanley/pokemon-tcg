@@ -9,7 +9,7 @@ import { gunzipSync } from 'node:zlib';
 import { Store } from '../src/store.js';
 import { saveMonthHistory, syncVolume } from '../src/volume.js';
 import { exportSnapshot, checkFreshness, checkCompleteSweep, checkCompleteDatabase,
-  needsDailyCollection, publishGitHub, updateReadmeLeaderboard } from '../src/publish.js';
+  needsDailyCollection, publishGitHub, updateReadmeLeaderboard, verifiedReportingDates } from '../src/publish.js';
 
 const readmeWithLeaderboard = `# Existing heading
 
@@ -31,7 +31,7 @@ test('README leaderboard limits rows to ten and skips the newest source day', ()
     })).reverse(),
     { date_source, pokemon_key: 'a', pokemon: 'A | B', units: 100, sale_records: 2 },
   ];
-  const readme = updateReadmeLeaderboard(readmeWithLeaderboard, daily, pokemon, latest);
+  const readme = updateReadmeLeaderboard(readmeWithLeaderboard, daily, pokemon, [date_source]);
   assert.match(readme, /\*\*2026-11-17\*\*/);
   assert.match(readme, /\| 1 \| A &#124; B \| 100 \| 2 \|/);
   assert.match(readme, /\| 2 \| Species 0 \| 100 \| 1 \|/);
@@ -39,17 +39,17 @@ test('README leaderboard limits rows to ten and skips the newest source day', ()
   assert.doesNotMatch(readme, /Newest|Species 9|Old leaderboard/);
   assert.match(readme, /^# Existing heading/);
   assert.match(readme, /\nFooter\n$/);
-  assert.equal(updateReadmeLeaderboard(readme, daily, pokemon, latest), readme);
+  assert.equal(updateReadmeLeaderboard(readme, daily, pokemon, [date_source]), readme);
 });
 
 test('README does not present preliminary or unavailable Pokemon sales as zero', () => {
   const date_source = '2026-11-17';
-  assert.match(updateReadmeLeaderboard(readmeWithLeaderboard, [{ date_source }], [], date_source),
-    /No prior source day is available/);
+  assert.match(updateReadmeLeaderboard(readmeWithLeaderboard, [{ date_source }], [], []),
+    /No source day with a verified catalog sweep/);
   const pokemon = [{ date_source, pokemon: 'Zero', pokemon_key: 'zero', units: 0, sale_records: 0 }];
-  assert.match(updateReadmeLeaderboard(readmeWithLeaderboard, [{ date_source }], pokemon, '2026-11-18'),
+  assert.match(updateReadmeLeaderboard(readmeWithLeaderboard, [{ date_source }], pokemon, [date_source]),
     /No mapped Pokemon sales were reported for this day/);
-  assert.throws(() => updateReadmeLeaderboard('# Missing markers\n', [], [], date_source),
+  assert.throws(() => updateReadmeLeaderboard('# Missing markers\n', [], [], []),
     /Invalid README leaderboard markers/);
 });
 
@@ -230,7 +230,7 @@ test('published reports and complete compressed downloads retain corrected count
     .includes('"2026-10-31","charizard","Charizard","5","3","3","0","30","36","30","36",""'));
   assert.equal(store.db.prepare('SELECT count(*) AS n FROM daily_volume').get().n, 30);
   assert.ok(readFileSync(join(directory, 'volume.svg'), 'utf8')
-    .includes('3 observed units and 5 reported transactions. Priced subset: $30 to $36'));
+    .includes('No source dates with a verified catalog sweep'));
   assert.ok(coverage.downloads.includes('volume.svg'));
   assert.ok(coverage.downloads.includes('daily-trading.csv'));
   assert.ok(coverage.downloads.includes('product-daily-trading.csv.gz'));
@@ -326,6 +326,25 @@ if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
         quantitySold: index === 0 ? 3 : index === 1 ? 2 : 0,
         transactionCount: index === 0 ? 2 : index === 1 ? 1 : 0,
       })) }] }, now.toISOString());
+    const queue = now.toISOString().slice(0, 10);
+    const stamp = now.toISOString();
+    store.db.prepare(`INSERT INTO volume_runs VALUES
+      (?,?,?,?,'complete',1,1,1,0,0,'')`).run(queue, stamp, stamp, stamp);
+    store.db.prepare(`INSERT INTO volume_jobs VALUES
+      (?,1,'success',1,?,30,'')`).run(queue, stamp);
+    const eligible = new Date(Date.parse(queue) - 86400000).toISOString().slice(0, 10);
+    assert.deepEqual(verifiedReportingDates(store.db, queue), [eligible]);
+    store.db.exec('SAVEPOINT incomplete_fixture');
+    store.db.prepare('UPDATE volume_runs SET status=? WHERE date_utc=?').run('paused', queue);
+    assert.deepEqual(verifiedReportingDates(store.db, queue), []);
+    store.db.exec('ROLLBACK TO incomplete_fixture');
+    store.db.prepare('UPDATE volume_jobs SET fetched_at=?').run(new Date(now.getTime() + 1).toISOString());
+    assert.deepEqual(verifiedReportingDates(store.db, queue), []);
+    store.db.exec('ROLLBACK TO incomplete_fixture');
+    store.db.prepare('UPDATE daily_volume SET last_seen=? WHERE date_source=?')
+      .run(`${eligible}T23:59:59.999Z`, queue);
+    assert.deepEqual(verifiedReportingDates(store.db, queue), []);
+    store.db.exec('ROLLBACK TO incomplete_fixture; RELEASE incomplete_fixture');
   } finally { store.close(); }
   const coverage = await publishGitHub(data);
   assert.equal(coverage.units, 5);
@@ -341,7 +360,7 @@ if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
   assert.ok(readme.includes('| 1 | Charizard | 2 | 1 |'));
   assert.ok(readme.endsWith('Concurrent README edit'));
   assert.ok(git(['--git-dir', remote, 'show', 'main:reports/latest/volume.svg'])
-    .includes('5 observed units and 3 reported transactions'));
+    .includes('2 observed units and 1 reported transactions on verified-sweep dates'));
   assert.equal(git(['--git-dir', remote, 'show', 'main:reports/latest/daily-trading.csv'])
     .trimEnd().split(/\r?\n/).length, 31);
   assert.equal(git(['--git-dir', remote, 'show', 'main:reports/latest/set-daily-trading.csv'])

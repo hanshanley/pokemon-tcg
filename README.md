@@ -19,13 +19,13 @@ The catalog covers English and Japanese products; **sales coverage is still
 partial, not a certified total for the whole marketplace**.
 
 <p align="center">
-  <img src="reports/latest/sales-value.png" width="1200" alt="Daily Pokemon sales value: actual low-high price bounds, with the partial latest source day shown separately">
+  <img src="reports/latest/sales-value.png" width="1200" alt="Daily Pokemon sales value: actual low-high price bounds on dates with verified catalog sweeps">
 </p>
 
 The terracotta band shows daily item-value bounds from actual low/high SKU sale
-prices, **not exact revenue or a confidence interval**. The latest partial day is
-shown separately in blue, not connected as a misleading drop in sales. Dates
-with missing prices are omitted from the line, not treated as zero.
+prices, **not exact revenue or a confidence interval**. Only closed dates with
+verified catalog sweeps and complete price coverage are plotted. Missing and
+partial days are left out, not treated as zero.
 
 Download the [PNG](reports/latest/sales-value.png), [exact chart data](reports/latest/sales-value.csv),
 or [caption, alt text and source hashes](reports/latest/sales-value.json).
@@ -44,26 +44,26 @@ The two datasets are never added together.
 
 <!-- BEGIN POKEMON LEADERBOARD -->
 
-**2026-11-18** (TCGplayer source date) · ranked by reported units sold.
+**2026-11-17** (TCGplayer source date; verified catalog sweep) · ranked by reported units sold.
 
 | Rank | Pokemon | Units sold | Reported transactions |
 | ---: | --- | ---: | ---: |
-| 1 | Pikachu | 194 | 113 |
-| 2 | Psyduck | 152 | 72 |
-| 3 | Charmander | 114 | 79 |
-| 4 | Eevee | 103 | 65 |
-| 5 | Unown | 103 | 87 |
-| 6 | Squirtle | 100 | 59 |
-| 7 | Diglett | 79 | 29 |
-| 8 | Slowpoke | 72 | 51 |
-| 9 | Kabuto | 65 | 29 |
-| 10 | Charizard | 61 | 56 |
+| 1 | Pikachu | 5,718 | 3,526 |
+| 2 | Eevee | 1,276 | 703 |
+| 3 | Mewtwo | 1,114 | 650 |
+| 4 | Mew | 1,097 | 531 |
+| 5 | Gengar | 947 | 527 |
+| 6 | Meowth | 915 | 652 |
+| 7 | Charizard | 756 | 547 |
+| 8 | Umbreon | 675 | 359 |
+| 9 | Greninja | 649 | 396 |
+| 10 | Moltres | 614 | 399 |
 
 <!-- END POKEMON LEADERBOARD -->
 
-Updates with the daily sales reports and skips the newest, preliminary source
-date. Reported counts may still be incomplete or revised. Tag-team cards count
-toward each tagged Pokemon, so leaderboard rows are not additive.
+Updates with the daily sales reports, using the latest date backed by a verified
+catalog sweep. Counts can still be revised and are not marketplace totals.
+Tag-team cards count toward each tagged Pokemon, so rows are not additive.
 [Download all Pokemon and dates](reports/latest/pokemon-daily.csv).
 
 ## Explore the data

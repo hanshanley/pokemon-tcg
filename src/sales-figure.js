@@ -19,6 +19,7 @@ export function salesPlotRows(rows, coverage) {
   if (!checkedDate || !/^\d{4}-\d{2}-\d{2}$/.test(checkedDate) ||
       !Number.isFinite(Date.parse(checkedDate))) throw new Error('Missing sales chart observation date.');
   const latestDate = rows.reduce((latest,row) => row.date_source > latest ? row.date_source : latest,'');
+  const verified = new Set(coverage.reporting_dates ?? []);
   const seen = new Set();
   return rows.map(row => {
     const time = Date.parse(`${row.date_source}T00:00:00Z`);
@@ -37,9 +38,10 @@ export function salesPlotRows(rows, coverage) {
           row.unpriced_units != null && row.unpriced_units !== '' && Number(row.unpriced_units) !== units - priced)) {
       throw new Error('Invalid sales chart quantity or price bounds.');
     }
-    const status = !available ? 'missing_prices' : priced < units ? 'partial_prices'
-      : row.date_source === latestDate || row.date_source >= checkedDate ? 'partial_day' : 'historical';
-    const plotted = ['historical','partial_day'].includes(status);
+    const status = row.date_source === latestDate || row.date_source >= checkedDate ? 'partial_day'
+      : !verified.has(row.date_source) ? 'unverified_sweep'
+      : !available ? 'missing_prices' : priced < units ? 'partial_prices' : 'historical';
+    const plotted = status === 'historical';
     return { ...row, plot_status: status,
       plot_lower_usd: plotted ? low : '', plot_upper_usd: plotted ? high : '' };
   }).sort((a,b) => a.date_source.localeCompare(b.date_source));
@@ -49,7 +51,8 @@ export function salesFigure(rows, coverage, background = '#F7F5F0') {
   if (!rows.length) throw new Error('No observed daily sales to plot.');
   if (!['#F7F5F0','#F2EFE7'].includes(background)) throw new Error('Unsupported chart background.');
   const data = salesPlotRows(rows, coverage);
-  const first = data[0].date_source, last = data.at(-1).date_source;
+  const eligible = data.filter(row => !['partial_day','unverified_sweep'].includes(row.plot_status));
+  const first = (eligible[0] ?? data[0]).date_source, last = (eligible.at(-1) ?? data.at(-1)).date_source;
   const minimum = Date.parse(first), maximum = Date.parse(last);
   const x = date => maximum === minimum ? 615 : 100 + (Date.parse(date) - minimum) / (maximum - minimum) * 1030;
   const top = 160, bottom = 570;
@@ -61,17 +64,16 @@ export function salesFigure(rows, coverage, background = '#F7F5F0') {
   const text = (left, baseline, value, attributes = '') =>
     `<text x="${left}" y="${baseline}" ${attributes}>${escape(value)}</text>`;
   const missing = data.filter(row => ['missing_prices','partial_prices'].includes(row.plot_status)).length;
-  const latest = data.findLast(row => row.plot_status === 'partial_day');
   const sweep = coverage.sweep;
-  const latestNote = latest ? `Latest source date (${dateLabel(latest.date_source)}): ${usd(latest.plot_lower_usd)} to ${usd(latest.plot_upper_usd)}; partial day, shown separately.`
-    : 'No same-day estimate is connected to the historical series.';
-  const coverageNote = sweep ? `Catalog sweep: ${count(sweep.products_checked)} / ${count(sweep.products_expected)} products checked; ${count(sweep.products_failed)} failed.`
+  const withheld = data.length - eligible.length;
+  const latestNote = `${withheld} retained dates not shown: newest or without a verified catalog sweep.`;
+  const coverageNote = sweep ? `Latest collection sweep: ${count(sweep.products_checked)} / ${count(sweep.products_expected)} products checked; ${count(sweep.products_failed)} failed.`
     : 'Catalog sweep completeness is not established.';
   const caption = 'Daily observed Pokemon item-value bounds on TCGplayer, across English and Japanese catalog products. ' +
     'Bounds sum SKU-day quantities multiplied by actual low/high unit sale prices; they are not a confidence interval or exact revenue. ' +
-    'Shipping and tax are excluded. Dates with incomplete price coverage are omitted from the line but retained in the CSV. ' +
-    'The latest source day is shown separately when still in progress. Catalog and historical sales coverage are not certified marketplace totals.';
-  const alt = `Pokemon sales value from ${first} to ${last}. ${latestNote} ${coverageNote} ${missing} dates omitted for incomplete prices.`;
+    'Shipping and tax are excluded. Only closed source dates supported by verified catalog sweeps and complete price coverage are plotted. ' +
+    'Unverified dates and incomplete prices are retained in the CSV; gaps are not zero sales. A catalog sweep is not a certified marketplace total.';
+  const alt = `Pokemon sales value${eligible.length ? ` from ${first} to ${last}` : ': no dates with verified sweeps'}. ${latestNote} ${coverageNote} ${missing} dates omitted for incomplete prices.`;
   let marks = '';
   for (let tick = 0; tick <= 4; tick++) {
     const value = ceiling * tick / 4;
@@ -94,18 +96,15 @@ export function salesFigure(rows, coverage, background = '#F7F5F0') {
     ].join(' ')}" fill="#C85A3D" fill-opacity="0.18"/>`;
     for (const field of ['plot_lower_usd','plot_upper_usd']) {
       marks += `<polyline data-series="historical" points="${coordinates(field).join(' ')}" fill="none" stroke="#C85A3D" stroke-width="2.2"/>`;
-      for (const row of part) marks += `<circle cx="${x(row.date_source)}" cy="${y(row[field])}" r="2" fill="#C85A3D"><title>${escape(`${row.date_source}: ${usd(row.plot_lower_usd)} to ${usd(row.plot_upper_usd)}`)}</title></circle>`;
+      for (const row of part) marks += `<circle cx="${x(row.date_source)}" cy="${y(row[field])}" r="3" fill="#C85A3D"><title>${escape(`${row.date_source}: ${usd(row.plot_lower_usd)} to ${usd(row.plot_upper_usd)}`)}</title></circle>`;
     }
   }
-  for (const row of data.filter(row => row.plot_status === 'partial_day')) {
-    const left = x(row.date_source), low = y(row.plot_lower_usd), high = y(row.plot_upper_usd);
-    marks += `<path data-series="partial-day" d="M${left},${low}V${high}M${left - 5},${low}h10M${left - 5},${high}h10" fill="none" stroke="#3D6F8C" stroke-width="2.5"><title>${escape(`${row.date_source}: partial day, ${usd(row.plot_lower_usd)} to ${usd(row.plot_upper_usd)}`)}</title></path>`;
-  }
-  if (!visible.length) marks += text(615,355,'Price coverage unavailable; no zero sales inferred.',
+  if (!visible.length) marks += text(615,355,'No dates with verified sweep and price coverage; no zero sales inferred.',
     'class="muted" text-anchor="middle"');
-  const tickCount = Math.min(6,data.length);
+  const axisDates = data.filter(row => row.date_source >= first && row.date_source <= last);
+  const tickCount = eligible.length ? Math.min(6,axisDates.length) : 0;
   for (let index = 0; index < tickCount; index++) {
-    const row = data[Math.round(index * (data.length - 1) / Math.max(1,tickCount - 1))];
+    const row = axisDates[Math.round(index * (axisDates.length - 1) / Math.max(1,tickCount - 1))];
     marks += text(x(row.date_source),607,dateLabel(row.date_source),'class="axis" text-anchor="middle"');
   }
   const checked = coverage.last_successful_check_at?.replace('T',' ').slice(0,16) ?? 'not established';
@@ -115,15 +114,17 @@ export function salesFigure(rows, coverage, background = '#F7F5F0') {
 <style>text{font-family:Georgia,"Liberation Serif","Times New Roman",serif;fill:#1A1A1A;font-size:19px}.title{font-size:32px;font-weight:600}.muted,.axis{fill:#6B6B6B}.axis{font-size:18px}.note{font-size:16px;fill:#6B6B6B}.grid{stroke:#D6D3CC;stroke-width:1}</style>
 <rect data-role="background" width="1200" height="800" fill="${background}"/>
 ${text(60,48,'Daily Pokemon sales value on TCGplayer','class="title"')}
-${text(60,81,'All observed Pokemon catalog products; USD, excluding shipping and tax.','class="muted"')}
-${text(60,111,`${dateLabel(first)} to ${dateLabel(last)}, ${last.slice(0,4)} | English and Japanese singles and sealed products`,'class="muted"')}
+${text(60,81,'Verified catalog sweep dates only; USD, excluding shipping and tax.','class="muted"')}
+${text(60,111,eligible.length
+  ? `${first === last ? dateLabel(last) : `${dateLabel(first)} to ${dateLabel(last)}`}, ${last.slice(0,4)} | English and Japanese products`
+  : 'No closed dates with verified catalog coverage.','class="muted"')}
 ${text(100,143,'USD per source date','class="muted"')}
 ${text(1130,143,'Observed low-high bounds','text-anchor="end" style="fill:#C85A3D"')}
 ${marks}
-${text(60,651,latestNote,'style="fill:#3D6F8C"')}
+${text(60,651,latestNote,'class="muted"')}
 ${text(60,679,coverageNote,'class="muted"')}
 ${text(60,714,'Band = actual SKU-day price bounds x quantity, not a confidence interval or exact revenue.','class="note"')}
-${text(60,740,`${missing} dates with incomplete prices omitted. Historical coverage varies; source timezone unpublished.`,'class="note"')}
+${text(60,740,`${missing} verified-sweep dates omitted for incomplete prices. Gaps are not zero. Source timezone unpublished.`,'class="note"')}
 ${text(60,766,`Source: TCGplayer native SKU-day histories. Last successful source check: ${checked} UTC.`,'class="note"')}
 </svg>\n` };
 }

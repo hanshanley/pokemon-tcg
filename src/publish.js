@@ -125,14 +125,43 @@ function* csvChunks(rows, fields) {
   if (batch.length) yield csv(batch, fields).slice(header.length);
 }
 
-export function updateReadmeLeaderboard(readme, daily, pokemon, latestDate) {
+export function verifiedReportingDates(db, latestDate) {
+  const sweeps = db.prepare(`SELECT *, date(date_utc,'-1 day') AS report_date
+    FROM volume_runs
+    WHERE status='complete' AND products_failed=0 AND products_expected>0
+      AND products_checked=products_expected AND products_with_history>0
+      AND products_with_history+products_without_history=products_expected
+      AND date_utc<=? AND finished_at IS NOT NULL
+    ORDER BY date_utc`).all(latestDate);
+  const counts = db.prepare(`WITH observed AS MATERIALIZED (
+      SELECT product_id,
+        max(CASE WHEN date_source=? THEN last_seen END) AS closed_seen,
+        max(CASE WHEN date_source=? THEN last_seen END) AS later_seen
+      FROM daily_volume WHERE date_source IN (?,?) GROUP BY product_id
+    ) SELECT count(*) AS jobs,
+      count(*) FILTER (WHERE status='success' AND buckets>0 AND buckets%30=0
+        AND closed_seen>=fetched_at AND later_seen>=fetched_at
+        AND julianday(fetched_at) BETWEEN julianday(?) AND julianday(?)) AS histories,
+      count(*) FILTER (WHERE status='empty' AND buckets=0
+        AND julianday(fetched_at) BETWEEN julianday(?) AND julianday(?)) AS empty
+    FROM volume_jobs j LEFT JOIN observed o USING(product_id) WHERE j.date_utc=?`);
+  return sweeps.filter(run => {
+    const { date_utc: queue, report_date: date, finished_at: finished } = run;
+    const saved = counts.get(date,queue,date,queue,queue,finished,queue,finished,queue);
+    return saved.jobs === run.products_expected && saved.histories === run.products_with_history &&
+      saved.empty === run.products_without_history;
+  }).map(run => run.report_date);
+}
+
+export function updateReadmeLeaderboard(readme, daily, pokemon, reportingDates) {
   const start = '<!-- BEGIN POKEMON LEADERBOARD -->';
   const end = '<!-- END POKEMON LEADERBOARD -->';
   const sections = readme.split(`${start}\n`);
   const rest = sections[1]?.split(`\n${end}`);
   if (sections.length !== 2 || rest?.length !== 2) throw new Error('Invalid README leaderboard markers.');
 
-  const date = daily.map(row => row.date_source).filter(day => day < latestDate).sort().at(-1);
+  const verified = new Set(reportingDates);
+  const date = daily.map(row => row.date_source).filter(day => verified.has(day)).sort().at(-1);
   const top = pokemon.filter(row => row.date_source === date && row.units > 0)
     .sort((a, b) => b.units - a.units ||
       (a.pokemon_key < b.pokemon_key ? -1 : a.pokemon_key > b.pokemon_key ? 1 : 0)).slice(0, 10);
@@ -145,8 +174,8 @@ export function updateReadmeLeaderboard(readme, daily, pokemon, latestDate) {
     ...top.map((row, i) => `| ${i + 1} | ${name(row.pokemon)} | ${format.format(row.units)} | ${format.format(row.sale_records)} |`),
   ].join('\n') : 'No mapped Pokemon sales were reported for this day.';
   const body = date
-    ? `**${date}** (TCGplayer source date) · ranked by reported units sold.\n\n${table}`
-    : 'No prior source day is available yet. The newest source date is preliminary.';
+    ? `**${date}** (TCGplayer source date; verified catalog sweep) · ranked by reported units sold.\n\n${table}`
+    : 'No source day with a verified catalog sweep is available yet.';
   return `${sections[0]}${start}\n\n${body}\n\n${end}${rest[1]}`;
 }
 
@@ -169,6 +198,7 @@ export async function exportSnapshot(store, directory, now = new Date(), { readm
       catalog_products: store.db.prepare('SELECT count(*) AS n FROM catalog_products WHERE is_current=1').get().n,
       catalog_source_build: store.db.prepare(`SELECT source_build FROM catalog_runs
         WHERE status='complete' ORDER BY id DESC LIMIT 1`).get()?.source_build ?? null,
+      reporting_dates: verifiedReportingDates(store.db, totals.last_source_date),
       sweep: run ? Object.fromEntries(['date_utc', 'status', 'updated_at', 'products_expected',
         'products_checked', 'products_with_history', 'products_without_history', 'products_failed']
         .map(key => [key, run[key]])) : null,
@@ -223,7 +253,7 @@ export async function exportSnapshot(store, directory, now = new Date(), { readm
     await writeSalesFigure(directory);
     if (readmePath) {
       const readme = readFileSync(readmePath, 'utf8');
-      writeFileSync(readmePath, updateReadmeLeaderboard(readme, daily, pokemon, coverage.last_source_date));
+      writeFileSync(readmePath, updateReadmeLeaderboard(readme, daily, pokemon, coverage.reporting_dates));
     }
     store.db.exec('COMMIT');
     return coverage;

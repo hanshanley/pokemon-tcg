@@ -158,10 +158,16 @@ asset, not committed as a large Git file. Set and Pokemon daily reports are
 both committed and released. These exports update automatically with every
 native-volume publication; they are not top-product lists.
 
-The same publication updates the README's top ten Pokemon from the daily
-species report. It ranks positive reported units on the latest retained
-source date before the preliminary newest date, breaking ties by species key.
-The leaderboard does not certify day or marketplace completeness.
+The README leaderboard and publication figures use `coverage.json`'s
+`reporting_dates`, not simply all but the newest source day. Each eligible
+date is the day before a completed UTC sweep with all expected jobs saved as
+successful or empty. Every successful product must have saved observations for
+both source dates at or after its fetch in that sweep. This confirms the
+requested source day is no longer the newest bucket for those products. The
+leaderboard ranks units on the latest eligible date (ties by species key); the
+main dollar figure additionally requires all reported units to have prices.
+Other dates remain in the downloads. Verified catalog sweeps do not establish
+complete marketplace sales.
 
 Set names alone are not unique: English and Japanese categories and different
 groups can share names. Use both numeric IDs when joining or aggregating sets.
