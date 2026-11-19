@@ -5,7 +5,6 @@ import { createHash } from 'node:crypto';
 import { dailyCsv, writeVolumeFigure } from './figures.js';
 import { csv } from './store.js';
 
-const day = 86400000;
 const escape = value => String(value).replace(/[&<>"']/g, char =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[char]);
 const count = value => Number(value).toLocaleString('en-US');
@@ -57,47 +56,34 @@ export function salesFigure(rows, coverage, background = '#F7F5F0') {
   const x = date => maximum === minimum ? 615 : 100 + (Date.parse(date) - minimum) / (maximum - minimum) * 1030;
   const top = 160, bottom = 570;
   const visible = data.filter(row => row.plot_lower_usd !== '');
-  const rawCeiling = Math.max(1,...visible.map(row => row.plot_upper_usd)) * 1.08;
-  const magnitude = 10 ** Math.floor(Math.log10(rawCeiling));
-  const ceiling = [1,2,2.5,5,10].find(value => value >= rawCeiling / magnitude) * magnitude;
+  const rawStep = Math.max(1,...visible.map(row => row.plot_upper_usd)) * 1.08 / 5;
+  const magnitude = 10 ** Math.floor(Math.log10(rawStep));
+  const step = [1,2,2.5,5,10].find(value => value >= rawStep / magnitude) * magnitude;
+  const ceiling = step * 5;
   const y = value => bottom - value / ceiling * (bottom - top);
   const text = (left, baseline, value, attributes = '') =>
     `<text x="${left}" y="${baseline}" ${attributes}>${escape(value)}</text>`;
   const missing = data.filter(row => ['missing_prices','partial_prices'].includes(row.plot_status)).length;
   const sweep = coverage.sweep;
   const withheld = data.length - eligible.length;
-  const latestNote = `${withheld} retained dates not shown: newest or without a verified catalog sweep.`;
+  const latestNote = `${visible.length} dates shown. ${withheld} retained dates excluded because coverage was unverified or preliminary.`;
   const coverageNote = sweep ? `Latest collection sweep: ${count(sweep.products_checked)} / ${count(sweep.products_expected)} products checked; ${count(sweep.products_failed)} failed.`
     : 'Catalog sweep completeness is not established.';
   const caption = 'Daily observed Pokemon item-value bounds on TCGplayer, across English and Japanese catalog products. ' +
     'Bounds sum SKU-day quantities multiplied by actual low/high unit sale prices; they are not a confidence interval or exact revenue. ' +
     'Shipping and tax are excluded. Only closed source dates supported by verified catalog sweeps and complete price coverage are plotted. ' +
-    'Unverified dates and incomplete prices are retained in the CSV; gaps are not zero sales. A catalog sweep is not a certified marketplace total.';
+    'Each vertical mark spans one day’s low and high bounds; days are not interpolated. Unverified dates and incomplete prices remain in the CSV. ' +
+    'A catalog sweep is not a certified marketplace total.';
   const alt = `Pokemon sales value${eligible.length ? ` from ${first} to ${last}` : ': no dates with verified sweeps'}. ${latestNote} ${coverageNote} ${missing} dates omitted for incomplete prices.`;
   let marks = '';
-  for (let tick = 0; tick <= 4; tick++) {
-    const value = ceiling * tick / 4;
+  for (let tick = 0; tick <= 5; tick++) {
+    const value = step * tick;
     marks += `<path d="M100,${y(value)}H1130" class="grid"/>` +
       text(83,y(value) + 6,usd(value),'class="axis" text-anchor="end"');
   }
-  const segments = [];
-  let segment = [];
-  const flush = () => { if (segment.length) segments.push(segment); segment = []; };
-  for (const row of data) {
-    if (row.plot_status !== 'historical' ||
-        segment.length && Date.parse(row.date_source) - Date.parse(segment.at(-1).date_source) !== day) flush();
-    if (row.plot_status === 'historical') segment.push(row);
-  }
-  flush();
-  for (const part of segments) {
-    const coordinates = field => part.map(row => `${x(row.date_source)},${y(row[field])}`);
-    if (part.length > 1) marks += `<polygon data-series="historical" points="${[
-      ...coordinates('plot_upper_usd'), ...coordinates('plot_lower_usd').reverse(),
-    ].join(' ')}" fill="#C85A3D" fill-opacity="0.18"/>`;
-    for (const field of ['plot_lower_usd','plot_upper_usd']) {
-      marks += `<polyline data-series="historical" points="${coordinates(field).join(' ')}" fill="none" stroke="#C85A3D" stroke-width="2.2"/>`;
-      for (const row of part) marks += `<circle cx="${x(row.date_source)}" cy="${y(row[field])}" r="3" fill="#C85A3D"><title>${escape(`${row.date_source}: ${usd(row.plot_lower_usd)} to ${usd(row.plot_upper_usd)}`)}</title></circle>`;
-    }
+  for (const row of visible) {
+    const left = x(row.date_source), low = y(row.plot_lower_usd), high = y(row.plot_upper_usd);
+    marks += `<path data-series="daily-range" d="M${left},${low}V${high}M${left - 4},${low}h8M${left - 4},${high}h8" fill="none" stroke="#C85A3D" stroke-width="2.5"><title>${escape(`${row.date_source}: ${usd(row.plot_lower_usd)} to ${usd(row.plot_upper_usd)}`)}</title></path>`;
   }
   if (!visible.length) marks += text(615,355,'No dates with verified sweep and price coverage; no zero sales inferred.',
     'class="muted" text-anchor="middle"');
@@ -119,12 +105,12 @@ ${text(60,111,eligible.length
   ? `${first === last ? dateLabel(last) : `${dateLabel(first)} to ${dateLabel(last)}`}, ${last.slice(0,4)} | English and Japanese products`
   : 'No closed dates with verified catalog coverage.','class="muted"')}
 ${text(100,143,'USD per source date','class="muted"')}
-${text(1130,143,'Observed low-high bounds','text-anchor="end" style="fill:#C85A3D"')}
+${text(1130,143,'Low–high sales value per day','text-anchor="end" style="fill:#C85A3D"')}
 ${marks}
 ${text(60,651,latestNote,'class="muted"')}
-${text(60,679,coverageNote,'class="muted"')}
-${text(60,714,'Band = actual SKU-day price bounds x quantity, not a confidence interval or exact revenue.','class="note"')}
-${text(60,740,`${missing} verified-sweep dates omitted for incomplete prices. Gaps are not zero. Source timezone unpublished.`,'class="note"')}
+${text(60,679,'Blank dates are not zero sales.','class="muted"')}
+${text(60,714,'Ranges use actual SKU-day low/high sale prices × quantity; not exact revenue or confidence intervals.','class="note"')}
+${text(60,740,`${missing ? `${missing} verified dates omitted for incomplete prices. ` : ''}Source timezone unpublished; catalog coverage is not marketplace completeness.`,'class="note"')}
 ${text(60,766,`Source: TCGplayer native SKU-day histories. Last successful source check: ${checked} UTC.`,'class="note"')}
 </svg>\n` };
 }

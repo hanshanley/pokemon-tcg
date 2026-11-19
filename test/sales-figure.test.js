@@ -24,20 +24,20 @@ test('historical bounds preserve price gaps and omit the partial latest day', ()
   assert.deepEqual(figure.data.map(row => row.plot_status),
     ['historical','partial_prices','historical','partial_day']);
   assert.equal(figure.data[1].plot_lower_usd,'');
-  assert.equal((figure.svg.match(/<polyline data-series="historical"/g) ?? []).length,4);
+  assert.equal((figure.svg.match(/data-series="daily-range"/g) ?? []).length,2);
   assert.equal(figure.data[3].plot_lower_usd, '');
   assert.ok(!figure.svg.includes('2026-11-04:'));
   assert.ok(!figure.svg.includes('<polygon'));
   assert.ok(figure.alt.includes('9 / 10 products checked; 1 failed'));
   assert.ok(figure.alt.includes('1 dates omitted'));
-  assert.ok(figure.svg.includes('not a confidence interval or exact revenue'));
+  assert.ok(figure.svg.includes('not exact revenue or confidence intervals'));
   assert.ok(!/NaN|Infinity/.test(figure.svg));
 });
 
-test('an entirely absent source date breaks the historical band', () => {
+test('absent dates leave a gap between consistent daily range marks', () => {
   const { svg } = salesFigure([rows[0],rows[2],rows[3]],coverage);
-  assert.ok(!svg.includes('<polygon'));
-  assert.equal((svg.match(/<polyline /g) ?? []).length,4);
+  assert.doesNotMatch(svg, /<polygon|<polyline|2026-11-02:/);
+  assert.equal((svg.match(/data-series="daily-range"/g) ?? []).length,2);
 });
 
 test('only verified, priced zero days plot at zero, while missing prices stay unavailable', () => {
@@ -92,7 +92,7 @@ test('the publication bundle includes actual PNGs, replay data, captions and ver
   }
   assert.equal(metadata.rows,4);
   assert.ok(metadata.caption.includes('not a confidence interval'));
-  assert.ok(metadata.alt.includes('newest or without a verified catalog sweep'));
+  assert.ok(metadata.alt.includes('coverage was unverified or preliminary'));
   assert.ok(readFileSync(join(directory,'sales-value.csv'),'utf8').includes('"partial_day"'));
   for (const name of ['sales-value.png','sales-value-moe.png']) {
     const bytes = readFileSync(join(directory,name));

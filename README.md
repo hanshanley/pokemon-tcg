@@ -22,7 +22,7 @@ partial, not a certified total for the whole marketplace**.
   <img src="reports/latest/sales-value.png" width="1200" alt="Daily Pokemon sales value: actual low-high price bounds on dates with verified catalog sweeps">
 </p>
 
-The terracotta band shows daily item-value bounds from actual low/high SKU sale
+Each vertical mark shows one day's item-value bounds from actual low/high SKU sale
 prices, **not exact revenue or a confidence interval**. Only closed dates with
 verified catalog sweeps and complete price coverage are plotted. Missing and
 partial days are left out, not treated as zero.

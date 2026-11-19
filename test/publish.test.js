@@ -332,8 +332,15 @@ if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
       (?,?,?,?,'complete',1,1,1,0,0,'')`).run(queue, stamp, stamp, stamp);
     store.db.prepare(`INSERT INTO volume_jobs VALUES
       (?,1,'success',1,?,30,'')`).run(queue, stamp);
-    const eligible = new Date(Date.parse(queue) - 86400000).toISOString().slice(0, 10);
-    assert.deepEqual(verifiedReportingDates(store.db, queue), [eligible]);
+    const closedDates = Array.from({length: 29}, (_, i) =>
+      new Date(Date.parse(queue) - (29 - i) * 86400000).toISOString().slice(0, 10));
+    const eligible = closedDates.at(-1);
+    assert.deepEqual(verifiedReportingDates(store.db, queue), closedDates);
+    store.db.exec('SAVEPOINT missing_historical_day');
+    store.db.prepare('UPDATE daily_volume SET last_seen=? WHERE date_source=?')
+      .run(`${closedDates[0]}T23:59:59.999Z`, closedDates[0]);
+    assert.deepEqual(verifiedReportingDates(store.db, queue), closedDates.slice(1));
+    store.db.exec('ROLLBACK TO missing_historical_day; RELEASE missing_historical_day');
     store.db.exec('SAVEPOINT incomplete_fixture');
     store.db.prepare('UPDATE volume_runs SET status=? WHERE date_utc=?').run('paused', queue);
     assert.deepEqual(verifiedReportingDates(store.db, queue), []);

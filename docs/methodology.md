@@ -160,10 +160,11 @@ native-volume publication; they are not top-product lists.
 
 The README leaderboard and publication figures use `coverage.json`'s
 `reporting_dates`, not simply all but the newest source day. Each eligible
-date is the day before a completed UTC sweep with all expected jobs saved as
-successful or empty. Every successful product must have saved observations for
-both source dates at or after its fetch in that sweep. This confirms the
-requested source day is no longer the newest bucket for those products. The
+date is in the rolling history of a completed UTC sweep with all expected jobs
+saved as successful or empty. Every successful product must have at least its
+response's SKU count saved on the reporting day, plus a bucket on the later
+sweep date. Both must have been observed at or after the product's fetch in that
+sweep. The sweep date itself is excluded. The
 leaderboard ranks units on the latest eligible date (ties by species key); the
 main dollar figure additionally requires all reported units to have prices.
 Other dates remain in the downloads. Verified catalog sweeps do not establish

@@ -126,31 +126,41 @@ function* csvChunks(rows, fields) {
 }
 
 export function verifiedReportingDates(db, latestDate) {
-  const sweeps = db.prepare(`SELECT *, date(date_utc,'-1 day') AS report_date
+  const sweeps = db.prepare(`SELECT *, date(date_utc,'-29 days') AS window_start
     FROM volume_runs
     WHERE status='complete' AND products_failed=0 AND products_expected>0
       AND products_checked=products_expected AND products_with_history>0
       AND products_with_history+products_without_history=products_expected
       AND date_utc<=? AND finished_at IS NOT NULL
-    ORDER BY date_utc`).all(latestDate);
-  const counts = db.prepare(`WITH observed AS MATERIALIZED (
-      SELECT product_id,
-        max(CASE WHEN date_source=? THEN last_seen END) AS closed_seen,
-        max(CASE WHEN date_source=? THEN last_seen END) AS later_seen
-      FROM daily_volume WHERE date_source IN (?,?) GROUP BY product_id
-    ) SELECT count(*) AS jobs,
+    ORDER BY date_utc DESC`).all(latestDate);
+  const counts = db.prepare(`SELECT count(*) AS jobs,
       count(*) FILTER (WHERE status='success' AND buckets>0 AND buckets%30=0
-        AND closed_seen>=fetched_at AND later_seen>=fetched_at
         AND julianday(fetched_at) BETWEEN julianday(?) AND julianday(?)) AS histories,
       count(*) FILTER (WHERE status='empty' AND buckets=0
         AND julianday(fetched_at) BETWEEN julianday(?) AND julianday(?)) AS empty
-    FROM volume_jobs j LEFT JOIN observed o USING(product_id) WHERE j.date_utc=?`);
-  return sweeps.filter(run => {
-    const { date_utc: queue, report_date: date, finished_at: finished } = run;
-    const saved = counts.get(date,queue,date,queue,queue,finished,queue,finished,queue);
-    return saved.jobs === run.products_expected && saved.histories === run.products_with_history &&
-      saved.empty === run.products_without_history;
-  }).map(run => run.report_date);
+    FROM volume_jobs WHERE date_utc=?`);
+  const dates = db.prepare(`SELECT DISTINCT date_source FROM daily_volume WHERE date_source<?`)
+    .all(latestDate).map(row => row.date_source);
+  const verified = new Set();
+  for (const run of sweeps) {
+    const { date_utc: queue, window_start: start, finished_at: finished } = run;
+    const candidates = dates.filter(date => date >= start && date < queue && !verified.has(date));
+    if (!candidates.length) continue;
+    const saved = counts.get(queue,finished,queue,finished,queue);
+    if (saved.jobs !== run.products_expected || saved.histories !== run.products_with_history ||
+        saved.empty !== run.products_without_history) continue;
+    // The later bucket establishes the date boundary; historical buckets must cover the response's SKU count.
+    const covered = db.prepare(`SELECT date_source,count(*) AS products FROM (
+      SELECT v.date_source FROM daily_volume v NOT INDEXED CROSS JOIN volume_jobs j
+        ON j.product_id=v.product_id AND v.last_seen>=j.fetched_at
+      WHERE j.date_utc=? AND j.status='success'
+        AND v.date_source IN (${[...candidates,queue].map(() => '?').join(',')})
+      GROUP BY j.product_id,v.date_source HAVING count(*)>=j.buckets/30 OR v.date_source=?
+    ) GROUP BY date_source`).all(queue,...candidates,queue,queue)
+      .filter(row => row.products === run.products_with_history).map(row => row.date_source);
+    if (covered.includes(queue)) for (const date of covered) if (date !== queue) verified.add(date);
+  }
+  return [...verified].sort();
 }
 
 export function updateReadmeLeaderboard(readme, daily, pokemon, reportingDates) {
