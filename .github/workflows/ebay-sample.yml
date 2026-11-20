@@ -1,0 +1,38 @@
+name: Archive daily eBay Pokemon sample
+
+on:
+  schedule:
+    - cron: '20 15 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pokemon-ebay-sample
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - run: node src/ebay-sample.js
+      - name: Publish retained sample only
+        run: |
+          git config user.name "Hans Hanley"
+          git config user.email "22331826+hanshanley@users.noreply.github.com"
+          git add -- reports/ebay-sample
+          if git diff --cached --quiet; then exit 0; fi
+          git commit -m "Update the retained eBay Pokemon sample"
+          for attempt in 1 2 3; do
+            if git push origin HEAD:main; then exit 0; fi
+            git pull --rebase origin main
+          done
+          exit 1

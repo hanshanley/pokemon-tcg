@@ -16,9 +16,10 @@
     "import": "node src/import.js",
     "import:history": "node src/import-history.js",
     "individual": "node src/individual.js",
+    "ebay:sample": "node src/ebay-sample.js",
     "figures": "node src/sales-figure.js",
     "test": "node --test",
-    "check": "node --check src/store.js && node --check src/catalog.js && node --check src/import.js && node --check src/import-history.js && node --check src/individual.js && node --check src/figures.js && node --check src/sales-figure.js && node --check src/volume.js && node --check src/remote.js && node --check src/recover.js && node --check src/publish.js && node --check src/collector.js && node --check src/collect.js && node --check src/server.js && node --check public/app.js"
+    "check": "node --check src/store.js && node --check src/catalog.js && node --check src/import.js && node --check src/import-history.js && node --check src/individual.js && node --check src/ebay-sample.js && node --check src/figures.js && node --check src/sales-figure.js && node --check src/volume.js && node --check src/remote.js && node --check src/recover.js && node --check src/publish.js && node --check src/collector.js && node --check src/collect.js && node --check src/server.js && node --check public/app.js"
   },
   "dependencies": {
     "playwright": "^1.56.1"

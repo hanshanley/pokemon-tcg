@@ -84,6 +84,21 @@ catalog sweep. Counts can still be revised and are not marketplace totals.
 Tag-team cards count toward each tagged Pokemon, so rows are not additive.
 [Download all Pokemon and dates](reports/latest/pokemon-daily.csv).
 
+## Daily eBay sample
+
+The [daily eBay listing counts](reports/ebay-sample/daily.csv) track the
+rotating Jsonify sample, not the entire market. The scheduled job preserves
+[every retained observation](reports/ebay-sample/observations.csv) and
+[all distinct listing/date pairs](reports/ebay-sample/listings.csv).
+See the [capture date and coverage](reports/ebay-sample/coverage.json).
+Listing counts are not card quantities or transactions; displayed prices
+can include asking prices for undisclosed offers. This sample is never merged
+with TCGplayer.
+
+Data: [Jsonify](https://www.jsonify.com/datasets/ebay-us-pok-mon-sold-listings-9c1de2dcf5cc),
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). We omit images
+and listing titles and count repeated listing/date pairs once.
+
 ## Explore the data
 
 | Dataset | Reports | Complete downloads |

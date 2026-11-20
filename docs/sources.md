@@ -4,7 +4,8 @@
 
 General assessment updated **November 3, 2026**; the
 [PriceCharting assessment](#pricecharting-targeted-assessment) was rechecked on
-**November 18, 2026**. A price history or market-cap series is
+**November 18, 2026**, and the [daily feed alternatives](#daily-feed-alternatives)
+on **November 20, 2026**. A price history or market-cap series is
 not sales volume. Counts need an explicit unit (cards, sale records or lots);
 dollars need actual paid prices, quantities, currency and fee treatment.
 Different marketplaces and overlapping providers must remain separate.
@@ -31,7 +32,7 @@ intervening transactions.
 | [The Card API](https://www.thecardapi.com/docs) | Cross-market individual records; cursor pagination and `indexed_after` for bulk incremental sync. Public TCGplayer search was verified on November 1. | Public results omit quantities and price-confirmation/currency fields. [Terms](https://www.thecardapi.com/terms) prohibit free-tier persistence and standalone raw redistribution without an agreement. No playground archive was created. |
 | [TCG API](https://tcgapi.dev/use-cases/ebay-sold-prices/) | eBay sold listings with dates, prices, grade/condition and original listing links through `include=ebay_sales`. Bulk prices cover up to 500 cards per request. | API key required for transactions. Bulk summaries are rolling 30-day medians/counts, not daily dollars; do not multiply a median by the count. Quantities and exact timestamps need live validation. |
 | [Hobby Card Index](https://hobbycardindex.com/developers) | Recent sold sales across eBay and other platforms; date, price, grade and listing links. | Paid authenticated API. Its bulk files are price files, not a demonstrated bulk transaction feed. Commercial display/public archives require appropriate rights; no key connected. |
-| [TCGAPIs](https://tcgapis.com/tcgplayer-api) | Recent individual TCGplayer sales. | Business+ access; roughly 100 recent records. `/full` is a three-day SKU-bucket archive, not individual transactions or exact daily totals. |
+| [TCGAPIs](https://tcgapis.com/tcgplayer-api) | Recent individual TCGplayer sales. | Key and credits or a monthly plan; up to 100 recent records. `/full` is a three-day SKU-bucket archive, not individual transactions or exact daily totals. |
 | [SoldComps](https://sold-comps.com/docs) | TCGplayer individual sales by product and public filters. | Its own docs explicitly cap the endpoint at five recent rows on every plan. This does not solve the public-window problem. |
 | [PriceCharting](https://www.pricecharting.com/game/pokemon-base-set/charizard-4) | Dated sold-listing comparisons by marketplace/grade, current valuations and yearly volume. | Displayed rows lack explicit quantities and intraday timestamps. The Prices API/CSV do not supply historical sales. See the [targeted assessment](#pricecharting-targeted-assessment) for mapping, coverage and publication limits. |
 
@@ -141,6 +142,83 @@ keep every marketplace/provider series separate until overlap can be resolved.
 An authorized partial comp archive could still be useful, but would need its
 own coverage flags rather than an all-sales claim.
 
+## Daily feed alternatives
+
+The native collector is paused after source denials. TCGplayer's
+[developer portal](https://docs.tcgplayer.com/docs/getting-started) says it is
+not granting new API access, and its
+[site terms](https://help.tcgplayer.com/hc/en-us/articles/205004918-Terms-of-Service)
+require express permission for scraping. For a separate eBay series,
+the [official sold-history API](https://developer.ebay.com/develop/get-started/get-started-on-a-buying-application)
+is limited release, and the [API license](https://developer.ebay.com/develop/api-license-agreement)
+requires written permission for uses that enable derivation of category
+average selling prices or gross merchandise sold. Neither is an open
+catalog-wide feed for this archive.
+
+- **Closest documented match: [TCG API](https://tcgapi.dev/api/cards/).**
+  Its history has per-day, per-printing sale volume and average sale price;
+  [refreshes](https://tcgapi.dev/api/prices/#update-frequency) are daily for
+  both Pokemon categories, with sales sometimes arriving one to three days
+  later. Its [public Charizard ex example](https://tcgapi.dev/) (TCGplayer product `509980`) reports
+  Holofoil `sales_volume=6` on October 20. The hash-verified public checkpoint
+  independently has six units **and** six transactions that date, so this
+  comparison verifies neither the field's count definition nor coverage.
+  Published history coverage is for cards priced at $1 or more; explicit
+  SKU-level units, transaction counts and actual price bounds were not
+  established. Standard plans [prohibit bulk redistribution](https://tcgapi.dev/legal/licensing/).
+  The provider states it is not partnered with TCGplayer. Ask its enterprise
+  contact about an authorized custom daily export with public download rights
+  before buying a plan or wiring a feed.
+- **Transaction feed lead: [The Card API](https://www.thecardapi.com/docs).**
+  Its [status table](https://www.thecardapi.com/status) showed 53.1K
+  TCGplayer records on November 16, across categories, not a Pokemon count.
+  The documented response does not specify quantity. Cursor pagination and
+  indexed timestamps help sync its recorded sales but do not prove marketplace
+  completeness. Free access prohibits persistence; public raw downloads
+  require a [written agreement](https://www.thecardapi.com/terms).
+- **Licensable daily sample: [PokeInvest](https://www.pokeinvest.io/data-licensing).**
+  It offers sample files, bulk daily delivery and custom redistribution
+  terms for recorded comps from TCGplayer and other marketplaces. The
+  [standard sales endpoint](https://www.pokeinvest.io/data-api) is capped at
+  500 recent observations per card, and the source excludes some listings.
+  This may support a new, separately labeled series; it is not evidence of
+  full TCGplayer coverage.
+- **Documented bulk endpoint: [Pokémon Price Tracker](https://www.pokemonpricetracker.com/api-reference).**
+  Its daily graded-sales CSV is a snapshot of grade summaries: lifetime
+  counts and seven-day averages, not dated sale rows. The card API can
+  return dated eBay and Fanatics graded listings, but its standard
+  [license](https://www.pokemonpricetracker.com/licensing) prohibits public
+  bulk exports. Its TCGplayer series contains valuations, not sales.
+
+**Open-data check:** UltraBall provides [CC BY 4.0 research exports](https://ultraball.com/research/media).
+The downloaded record-sales CSV had 251 dated high-value records; its daily-
+refreshed most-traded CSV had 100 cards with rolling 30- and 90-day counts, not
+new sale totals per day. UltraBall offers custom cuts of its English-language
+eBay data, worth pursuing as a separate series. Do not schedule downloads
+without confirming the automation exception under its [site terms](https://ultraball.com/terms).
+[CardTrack's attributed species study](https://cardtrack.com/data/sales-by-pokemon)
+is a monthly multi-marketplace report, not a daily sale feed.
+[Jsonify's CC BY sample](https://www.jsonify.com/datasets/ebay-us-pok-mon-sold-listings-9c1de2dcf5cc)
+is refreshed daily and initially described 20 English eBay card/grade searches.
+The [separate eBay archive](../reports/ebay-sample/coverage.json) collects the
+public GitHub sample, not the eBay site or the full commercial dataset.
+Repeated listing/date pairs are counted once. Best Offers may show asking
+prices, so no daily revenue is reported.
+
+**Sample needed from a provider, not the project owner:** Request a seven-day
+export overlapping November 11–17, 2026, plus the latest closed source day.
+Ask for English and Japanese singles and sealed products, stable product and
+SKU IDs (or transaction IDs), separate units and transactions, sale value or
+observed sale-price bounds, currency, timezone, explicit empties versus missing
+coverage, a daily coverage manifest, and correction/backfill behavior.
+Use Grass Energy (`85874`, EX Ruby and Sapphire) on November 17 as a
+comparison row: the hash-verified product-day export reports 20 units,
+two transactions, and $6.30 in item sales. This distinguishes units from
+transactions and checks coverage of cheap items. Confirm permission to retain
+and offer complete public CSV/SQLite downloads, including what happens if
+the agreement ends. A different marketplace or a restricted panel must
+stay a separate series.
+
 ## Aggregate-only alternatives
 
 [TCGCharts](https://tcgcharts.com/developers) documents daily prices/counts and
@@ -154,7 +232,8 @@ not disclosed. A median is not a realized daily dollar total.
 
 [CardIndex's weekly market report](https://www.cardindex.co/blog/weekly-market-report)
 publishes daily count/dollar aggregates, but not a verified complete individual
-bulk feed. Its figures must not be merged into TCGplayer totals.
+bulk feed. Its [terms](https://www.cardindex.co/terms) require written consent
+for automated collection. Its figures must not be merged into TCGplayer totals.
 
 ## Connection requirements
 
