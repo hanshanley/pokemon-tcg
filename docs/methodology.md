@@ -396,6 +396,33 @@ not run unless explicitly enabled for diagnostics.
 PORT=3001 DATA_DIR=./data npm start
 ```
 
+## Offline daily history recovery
+
+If TCGplayer or an approved provider supplies an export matching the native
+daily SKU history and permits publication, restore the latest checkpoint in a
+separate data directory, then run:
+
+```sh
+DATA_DIR=/path/to/restored npm run import:history -- /path/to/authorized-history.jsonl
+```
+
+The first nonblank line is a JSON object with `format` set to
+`tcgplayer-sku-history-v1`, `source` set to `tcgplayer-daily`,
+`catalog_source_build` and `products_expected` matching the restored complete
+catalog, and `observed_at` set to the actual export snapshot time (UTC ISO 8601
+with milliseconds, on the current UTC date). Every subsequent line contains
+`product_id` and `history`, using the native `{count,result}` response format.
+Include every current product exactly once. An explicitly empty response must
+be `{"count":0,"result":[]}`; do not use that for missing data.
+
+Nonempty responses must have 30 consecutive source dates per SKU ending on
+the UTC observation date. Price bounds can be absent, but quantities and
+transaction counts cannot. A stale or incomplete file rolls back the entire
+import. This is a local recovery command: it makes no network requests,
+does not grant access or verify licensing, and does not upload data. Run the
+normal checkpoint and publication steps only after confirming the export's
+provenance and redistribution terms.
+
 ## Bulk transaction import
 
 Once transaction data is available, import newline-delimited JSON, one

@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../src/store.js';
 import { importTransactions } from '../src/import.js';
+import { importHistory } from '../src/import-history.js';
+import { checkCompleteDatabase } from '../src/publish.js';
 
 function setup(t) {
   const dir = mkdtempSync(join(tmpdir(), 'pokemon-bulk-import-'));
@@ -21,6 +23,84 @@ function setup(t) {
 const sale = (overrides = {}) => ({
   transaction_id: 'sale-a', product_id: 42382, kind: 'single',
   orderDate: '2026-10-31T03:30:00+03:00', quantity: 2, purchasePrice: 10.25, ...overrides,
+});
+
+const exportTime = '2026-10-31T12:00:00.000Z';
+const importTime = new Date('2026-10-31T13:00:00.000Z');
+const header = {
+  format: 'tcgplayer-sku-history-v1', source: 'tcgplayer-daily', observed_at: exportTime,
+  catalog_source_build: 'build', products_expected: 2,
+};
+const emptyHistory = { product_id: 502001, history: { count: 0, result: [] } };
+
+function historyProduct(end = 31) {
+  return { product_id: 42382, history: { count: 1, result: [{
+    skuId: 102, condition: 'Near Mint', variant: 'Holofoil', language: 'English',
+    buckets: Array.from({ length: 30 }, (_, index) => ({
+      bucketStartDate: new Date(Date.UTC(2026, 9, end - index)).toISOString().slice(0, 10),
+      quantitySold: 3, transactionCount: 2, lowSalePrice: '1.00', highSalePrice: '2.00',
+    })),
+  }] } };
+}
+
+function setupHistory(t) {
+  const { store, path, save } = setup(t);
+  store.db.prepare(`INSERT INTO catalog_runs (source_build,started_at,finished_at,status)
+    VALUES ('build',?,?,'complete')`).run(exportTime, exportTime);
+  return { store, path, save };
+}
+
+test('offline history import restores a physically verifiable sweep, including explicit empty products', async t => {
+  const { store, path, save } = setupHistory(t);
+  save([header, emptyHistory, historyProduct()]);
+  assert.deepEqual(await importHistory(store, path, importTime), {
+    source: 'tcgplayer-daily', observed_at: exportTime, products_checked: 2,
+    products_with_history: 1, products_without_history: 1, buckets: 30,
+  });
+  const totals = store.saleValueRows({ from: '2026-10-31' })[0];
+  assert.equal(totals.units, 3);
+  assert.equal(totals.sale_records, 2);
+  assert.equal(totals.sales_lower_usd, 3);
+  assert.equal(totals.sales_upper_usd, 6);
+  const { warning, ...sweep } = store.db.prepare('SELECT * FROM volume_runs').get();
+  const verified = checkCompleteDatabase(store.db, {
+    source: 'tcgplayer-daily', sku_buckets: 30, units: 90, transactions: 60,
+    generated_at: importTime.toISOString(), last_successful_check_at: exportTime,
+    catalog_products: 2, catalog_source_build: 'build', sweep,
+  }, importTime);
+  assert.equal(verified.products_checked, 2);
+  await assert.rejects(importHistory(store, path, importTime), /newer than the existing saved observations/);
+
+  const correction = historyProduct();
+  correction.history.result[0].buckets[0].quantitySold = 100;
+  save([{ ...header, observed_at: '2026-10-31T12:15:00.000Z' }, correction]);
+  await assert.rejects(importHistory(store, path, importTime), /incomplete catalog/);
+  assert.equal(checkCompleteDatabase(store.db, {
+    source: 'tcgplayer-daily', sku_buckets: 30, units: 90, transactions: 60,
+    generated_at: importTime.toISOString(), last_successful_check_at: exportTime,
+    catalog_products: 2, catalog_source_build: 'build', sweep,
+  }, importTime).units, 90);
+});
+
+test('offline history import rejects stale dates, wrong catalog, missing, duplicate and implicitly empty results atomically', async t => {
+  const { store, path, save } = setupHistory(t);
+  const valid = historyProduct();
+  for (const [rows, expected] of [
+    [[header, valid], /incomplete catalog/],
+    [[header, valid, valid], /duplicate catalog product/],
+    [[header, valid, { ...emptyHistory, product_id: 42 }], /Unknown/],
+    [[header, valid, { ...emptyHistory, history: { count: 0 } }], /explicitly provide/],
+    [[header, historyProduct(30), emptyHistory], /required observation window/],
+    [[{ ...header, catalog_source_build: 'old' }, valid, emptyHistory], /must match/],
+    [[{ ...header, observed_at: '2026-10-30T12:00:00.000Z' }, valid, emptyHistory], /current UTC/],
+    [[{ ...header, observed_at: '2026-10-31T14:00:00.000Z' }, valid, emptyHistory], /current UTC/],
+  ]) {
+    save(rows);
+    await assert.rejects(importHistory(store, path, importTime), expected);
+    for (const table of ['daily_volume', 'daily_sale_prices', 'price_checks', 'volume_jobs', 'volume_runs']) {
+      assert.equal(store.db.prepare(`SELECT count(*) AS n FROM ${table}`).get().n, 0, table);
+    }
+  }
 });
 
 test('bulk imports deduplicate stable IDs, retain identical separate sales and aggregate directly in SQL', async t => {

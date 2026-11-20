@@ -82,8 +82,14 @@ export function monthHistory(payload) {
   return rows;
 }
 
-export function saveMonthHistory(store, productId, payload, now = new Date().toISOString(), runDate) {
+export function saveMonthHistory(store, productId, payload, now = new Date().toISOString(), runDate, requiredEndDate) {
   const rows = monthHistory(payload);
+  if (requiredEndDate) {
+    const start = new Date(Date.parse(requiredEndDate) - 29 * 86400000).toISOString().slice(0, 10);
+    if (rows.some(row => row.date_source < start || row.date_source > requiredEndDate)) {
+      throw new Error('History does not cover the required observation window.');
+    }
+  }
   if (!store.db.prepare('SELECT 1 FROM catalog_products WHERE product_id=?').get(productId)) {
     throw new Error('History product is not in the Pokemon catalog.');
   }
@@ -94,7 +100,7 @@ export function saveMonthHistory(store, productId, payload, now = new Date().toI
       kind=excluded.kind,condition=excluded.condition,variant=excluded.variant,
       language=excluded.language,quantity=excluded.quantity,
       transaction_count=excluded.transaction_count,last_seen=excluded.last_seen`);
-  store.db.exec('BEGIN IMMEDIATE');
+  store.db.exec('SAVEPOINT save_month_history');
   try {
     const prices = store.db.prepare(`INSERT INTO daily_sale_prices VALUES (?,?,?,?,?,?,?,?)
       ON CONFLICT(product_id,sku_id,date_source) DO UPDATE SET
@@ -117,8 +123,11 @@ export function saveMonthHistory(store, productId, payload, now = new Date().toI
     if (runDate) store.db.prepare(`UPDATE volume_jobs
       SET status=?,fetched_at=?,buckets=?,warning='' WHERE date_utc=? AND product_id=?`)
       .run(rows.length ? 'success' : 'empty', now, rows.length, runDate, productId);
-    store.db.exec('COMMIT');
-  } catch (error) { store.db.exec('ROLLBACK'); throw error; }
+    store.db.exec('RELEASE save_month_history');
+  } catch (error) {
+    store.db.exec('ROLLBACK TO save_month_history; RELEASE save_month_history');
+    throw error;
+  }
   return rows.length;
 }
 
