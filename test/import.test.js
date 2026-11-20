@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../src/store.js';
 import { importTransactions } from '../src/import.js';
-import { importHistory } from '../src/import-history.js';
+import { fetchHistoryExport, importHistory } from '../src/import-history.js';
 import { checkCompleteDatabase } from '../src/publish.js';
 
 function setup(t) {
@@ -100,6 +100,31 @@ test('offline history import rejects stale dates, wrong catalog, missing, duplic
     for (const table of ['daily_volume', 'daily_sale_prices', 'price_checks', 'volume_jobs', 'volume_runs']) {
       assert.equal(store.db.prepare(`SELECT count(*) AS n FROM ${table}`).get().n, 0, table);
     }
+  }
+});
+
+test('approved export download does not retry, follow redirects, or import partial responses', async t => {
+  const { store } = setupHistory(t);
+  const url = 'https://exports.example.test/today.jsonl?signature=fixture';
+  await assert.rejects(fetchHistoryExport(store, 'http://exports.example.test/history'), /approved HTTPS/);
+  for (const [fetcher, error] of [
+    [async () => new Response('access denied', { status: 403 }), /HTTP 403/],
+    [async () => new Response('truncated export', { status: 206 }), /HTTP 206/],
+    [async () => { throw new Error(url); }, /request failed or redirected/],
+    [async () => new Response(JSON.stringify(header)), /incomplete catalog/],
+  ]) {
+    let attempts = 0;
+    await assert.rejects(fetchHistoryExport(store, url, {
+      now: () => importTime,
+      fetcher: (address, options) => {
+        attempts++;
+        assert.equal(address.href, url);
+        assert.equal(options.redirect, 'error');
+        return fetcher();
+      },
+    }), err => error.test(err.message) && !err.message.includes('signature'));
+    assert.equal(attempts, 1);
+    assert.equal(store.db.prepare('SELECT count(*) AS n FROM volume_runs').get().n, 0);
   }
 });
 

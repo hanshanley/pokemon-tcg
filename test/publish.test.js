@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { Store } from '../src/store.js';
 import { saveMonthHistory, syncVolume } from '../src/volume.js';
+import { fetchHistoryExport } from '../src/import-history.js';
 import { exportSnapshot, checkFreshness, checkCompleteSweep, checkCompleteDatabase,
   needsDailyCollection, publishGitHub, updateReadmeLeaderboard, verifiedReportingDates } from '../src/publish.js';
 
@@ -270,7 +271,7 @@ test('publishing rejects absent or stale observations rather than producing fres
   assert.doesNotThrow(() => checkFreshness({ ...coverage, last_successful_check_at: now.toISOString() }, now));
 });
 
-test('publishing keeps main as the only branch and preserves concurrent code commits', async t => {
+test('authorized export publishes a verified checkpoint and preserves concurrent main commits', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'pokemon-publish-main-'));
   const originalEnvironment = { ...process.env };
   t.after(() => {
@@ -296,12 +297,16 @@ test('publishing keeps main as the only branch and preserves concurrent code com
   process.env.TEST_PUBLICATION_SOURCE = source;
   process.env.TEST_PUBLICATION_REMOTE = remote;
   process.env.TEST_PUBLICATION_ASSETS = join(directory, 'assets.json');
+  process.env.TEST_PUBLICATION_CHECKPOINT = join(directory, 'checkpoint.sqlite');
   process.env.PATH = `${directory}:${process.env.PATH}`;
   writeFileSync(join(directory, 'gh'), `#!/usr/bin/env node
-const {appendFileSync,writeFileSync} = require('node:fs');
+const {appendFileSync,readFileSync,writeFileSync} = require('node:fs');
 const {execFileSync} = require('node:child_process');
+const {gunzipSync} = require('node:zlib');
 if (process.argv[2] === 'release' && process.argv[3] === 'upload') {
   writeFileSync(process.env.TEST_PUBLICATION_ASSETS, JSON.stringify(process.argv.slice(4)));
+  const checkpoint = process.argv.find(arg => arg.endsWith('/remote-state.sqlite.gz'));
+  if (checkpoint) writeFileSync(process.env.TEST_PUBLICATION_CHECKPOINT, gunzipSync(readFileSync(checkpoint)));
 }
 if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
   const source = process.env.TEST_PUBLICATION_SOURCE;
@@ -319,19 +324,32 @@ if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
     store.db.prepare(`INSERT INTO catalog_products VALUES
       (1,3,604,'Fixture set','Charizard','','','','','["Charizard"]','','build',1)`).run();
     const now = new Date();
-    saveMonthHistory(store, 1, { count: 1, result: [{ skuId: '101',
+    const stamp = now.toISOString();
+    const payload = { count: 1, result: [{ skuId: '101',
       condition: 'Near Mint', variant: 'Holofoil', language: 'English',
       buckets: Array.from({ length: 30 }, (_, index) => ({
         bucketStartDate: new Date(now - index * 86400000).toISOString().slice(0, 10),
         quantitySold: index === 0 ? 3 : index === 1 ? 2 : 0,
         transactionCount: index === 0 ? 2 : index === 1 ? 1 : 0,
-      })) }] }, now.toISOString());
+      })) }] };
     const queue = now.toISOString().slice(0, 10);
-    const stamp = now.toISOString();
-    store.db.prepare(`INSERT INTO volume_runs VALUES
-      (?,?,?,?,'complete',1,1,1,0,0,'')`).run(queue, stamp, stamp, stamp);
-    store.db.prepare(`INSERT INTO volume_jobs VALUES
-      (?,1,'success',1,?,30,'')`).run(queue, stamp);
+    store.db.prepare(`INSERT INTO catalog_runs (source_build,started_at,finished_at,status)
+      VALUES ('build',?,?,'complete')`).run(stamp, stamp);
+    const rows = [
+      { format: 'tcgplayer-sku-history-v1', source: 'tcgplayer-daily', observed_at: stamp,
+        catalog_source_build: 'build', products_expected: 1 },
+      { product_id: 1, history: payload },
+    ];
+    await fetchHistoryExport(store, 'https://exports.example.test/pokemon.jsonl', {
+      now: () => now, fetcher: async () => new Response(rows.map(r => JSON.stringify(r)).join('\n')),
+    });
+    const checkStored = () => execFileSync(process.execPath, [
+      fileURLToPath(new URL('../src/publish.js', import.meta.url)), '--check-stored', join(data, 'sales.sqlite'),
+    ], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    assert.equal(JSON.parse(checkStored()).products_checked, 1);
+    store.db.prepare('UPDATE volume_jobs SET buckets=0').run();
+    assert.throws(checkStored, /lack matching fresh saved history and price checks/);
+    store.db.prepare('UPDATE volume_jobs SET buckets=30').run();
     const closedDates = Array.from({length: 29}, (_, i) =>
       new Date(Date.parse(queue) - (29 - i) * 86400000).toISOString().slice(0, 10));
     const eligible = closedDates.at(-1);
@@ -353,7 +371,7 @@ if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
     assert.deepEqual(verifiedReportingDates(store.db, queue), []);
     store.db.exec('ROLLBACK TO incomplete_fixture; RELEASE incomplete_fixture');
   } finally { store.close(); }
-  const coverage = await publishGitHub(data);
+  const coverage = await publishGitHub(data, { fromExport: true });
   assert.equal(coverage.units, 5);
   assert.equal(git(['--git-dir', remote, 'for-each-ref', '--format=%(refname)', 'refs/heads']), 'refs/heads/main');
   assert.equal(git(['--git-dir', remote, 'show', 'main:app.txt']), 'Existing application code');
@@ -361,6 +379,9 @@ if (process.argv[2] === 'release' && process.argv[3] === 'edit') {
   const published = JSON.parse(git(['--git-dir', remote, 'show', 'main:reports/latest/coverage.json']));
   assert.equal(published.units, 5);
   assert.equal(published.sku_buckets, 30);
+  const checkpoint = new Store(process.env.TEST_PUBLICATION_CHECKPOINT);
+  try { assert.equal(checkCompleteDatabase(checkpoint.db, published).products_checked, 1); }
+  finally { checkpoint.close(); }
   const readme = git(['--git-dir', remote, 'show', 'main:README.md']);
   assert.ok(readme.includes(`**${new Date(Date.parse(published.last_source_date) - 86400000)
     .toISOString().slice(0, 10)}**`));

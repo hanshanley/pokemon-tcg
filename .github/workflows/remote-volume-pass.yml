@@ -9,6 +9,12 @@ on:
       retry_failed:
         type: boolean
         default: false
+      authorized_export:
+        type: boolean
+        default: false
+    secrets:
+      history_export_url:
+        required: false
 
 permissions:
   contents: write
@@ -38,13 +44,27 @@ jobs:
           gzip -dc data/remote-state.sqlite.gz > data/sales.sqlite
           node --input-type=module -e "import {Store} from './src/store.js'; const s=new Store('data/sales.sqlite'); const result=s.db.prepare('PRAGMA quick_check').get(); s.close(); if(Object.values(result)[0]!=='ok') throw new Error('Invalid remote checkpoint'); console.log(result);"
       - name: Collect native daily history without a Mac
+        if: ${{ !inputs.authorized_export }}
         run: |
           args=()
           if [[ "$RETRY_FAILED" == "true" ]]; then args+=(--retry-failed); fi
           xvfb-run -a node src/remote.js --limit "$MAX_PRODUCTS" --minutes 240 "${args[@]}"
+      - name: Import the authorized daily export
+        if: ${{ inputs.authorized_export }}
+        env:
+          TCGPLAYER_HISTORY_EXPORT_URL: ${{ secrets.history_export_url }}
+        run: |
+          if [[ -z "$TCGPLAYER_HISTORY_EXPORT_URL" ]]; then
+            echo "::error::No approved history export URL is configured."
+            exit 1
+          fi
+          npm run catalog
+          if ! node src/publish.js --check-stored data/sales.sqlite; then
+            npm run import:history -- --download
+          fi
       - name: Persist a public-only checkpoint even after a collection failure
         id: checkpoint
-        if: ${{ always() && !cancelled() && steps.restore.outcome == 'success' }}
+        if: ${{ always() && !cancelled() && !inputs.authorized_export && steps.restore.outcome == 'success' }}
         run: |
           node src/remote.js --checkpoint data/sales.sqlite data/public-state.sqlite
           gzip -c data/public-state.sqlite > data/remote-state.sqlite.gz
@@ -52,3 +72,6 @@ jobs:
       - name: Publish complete downloads and honest sweep coverage
         if: ${{ always() && !cancelled() && steps.checkpoint.outcome == 'success' }}
         run: npm run publish
+      - name: Verify and publish the authorized daily export
+        if: ${{ inputs.authorized_export }}
+        run: npm run publish -- --from-export

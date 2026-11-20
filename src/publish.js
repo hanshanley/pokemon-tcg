@@ -1,5 +1,5 @@
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, statSync,
-  createWriteStream, openSync, closeSync, unlinkSync } from 'node:fs';
+  createReadStream, createWriteStream, openSync, closeSync, unlinkSync } from 'node:fs';
 import { resolve, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
@@ -189,29 +189,39 @@ export function updateReadmeLeaderboard(readme, daily, pokemon, reportingDates) 
   return `${sections[0]}${start}\n\n${body}\n\n${end}${rest[1]}`;
 }
 
+function snapshotState(db, now) {
+  const totals = db.prepare(`SELECT count(*) AS sku_buckets,
+      coalesce(sum(quantity),0) AS units, coalesce(sum(transaction_count),0) AS transactions,
+      min(date_source) AS first_source_date, max(date_source) AS last_source_date,
+      max(last_seen) AS last_observed_at FROM daily_volume`).get();
+  if (!totals.sku_buckets) throw new Error('No daily SKU history to publish; no zero-sales report created.');
+  const run = db.prepare('SELECT * FROM volume_runs ORDER BY date_utc DESC LIMIT 1').get();
+  const lastCheck = db.prepare(`SELECT max(fetched_at) AS date FROM volume_jobs
+      WHERE status IN ('success','empty')`).get().date ?? totals.last_observed_at;
+  return {
+    source: volumeSource, generated_at: now.toISOString(), ...totals, last_successful_check_at: lastCheck,
+    catalog_products: db.prepare('SELECT count(*) AS n FROM catalog_products WHERE is_current=1').get().n,
+    catalog_source_build: db.prepare(`SELECT source_build FROM catalog_runs
+      WHERE status='complete' ORDER BY id DESC LIMIT 1`).get()?.source_build ?? null,
+    sweep: run ? Object.fromEntries(['date_utc', 'status', 'updated_at', 'products_expected',
+      'products_checked', 'products_with_history', 'products_without_history', 'products_failed']
+      .map(key => [key, run[key]])) : null,
+  };
+}
+
+export function checkStoredSweep(db, now = new Date()) {
+  return checkCompleteDatabase(db, snapshotState(db, now), now);
+}
+
 export async function exportSnapshot(store, directory, now = new Date(), { readmePath } = {}) {
   mkdirSync(directory, { recursive: true });
   store.db.exec('BEGIN');
   try {
-    const totals = store.db.prepare(`SELECT count(*) AS sku_buckets,
-      coalesce(sum(quantity),0) AS units, coalesce(sum(transaction_count),0) AS transactions,
-      min(date_source) AS first_source_date, max(date_source) AS last_source_date,
-      max(last_seen) AS last_observed_at FROM daily_volume`).get();
-    if (!totals.sku_buckets) throw new Error('No daily SKU history to publish; no zero-sales report created.');
-    const run = store.db.prepare('SELECT * FROM volume_runs ORDER BY date_utc DESC LIMIT 1').get();
-    const lastCheck = store.db.prepare(`SELECT max(fetched_at) AS date FROM volume_jobs
-      WHERE status IN ('success','empty')`).get().date ?? totals.last_observed_at;
+    const snapshot = snapshotState(store.db, now);
     const priceVolume = store.saleValueRows({ source: volumeSource })[0];
     const coverage = {
-      source: volumeSource, generated_at: now.toISOString(), ...totals,
-      last_successful_check_at: lastCheck, sales_usd: priceVolume.sales_usd,
-      catalog_products: store.db.prepare('SELECT count(*) AS n FROM catalog_products WHERE is_current=1').get().n,
-      catalog_source_build: store.db.prepare(`SELECT source_build FROM catalog_runs
-        WHERE status='complete' ORDER BY id DESC LIMIT 1`).get()?.source_build ?? null,
-      reporting_dates: verifiedReportingDates(store.db, totals.last_source_date),
-      sweep: run ? Object.fromEntries(['date_utc', 'status', 'updated_at', 'products_expected',
-        'products_checked', 'products_with_history', 'products_without_history', 'products_failed']
-        .map(key => [key, run[key]])) : null,
+      ...snapshot, sales_usd: priceVolume.sales_usd,
+      reporting_dates: verifiedReportingDates(store.db, snapshot.last_source_date),
       marketplace_completeness: 'unverified',
       source_timezone: 'not published',
       price_volume: priceVolume,
@@ -270,7 +280,7 @@ export async function exportSnapshot(store, directory, now = new Date(), { readm
   } catch (error) { store.db.exec('ROLLBACK'); throw error; }
 }
 
-export async function publishGitHub(dataDirectory) {
+export async function publishGitHub(dataDirectory, { fromExport = false } = {}) {
   const lockPath = join(dataDirectory, 'github-publish.lock');
   try {
     const pid = Number(readFileSync(lockPath, 'utf8'));
@@ -295,14 +305,25 @@ export async function publishGitHub(dataDirectory) {
     const output = join(checkout, 'reports', 'latest');
     const coverage = await exportSnapshot(store, output, new Date(), { readmePath: join(checkout, 'README.md') });
     store.close(); store = null;
+    const assets = assetFiles.map(name => join(output, name));
+    if (fromExport) {
+      const { publicCheckpoint } = await import('./remote.js');
+      const checkpoint = join(temporary, 'public-state.sqlite');
+      publicCheckpoint(join(dataDirectory, 'sales.sqlite'), checkpoint);
+      const db = new DatabaseSync(checkpoint, { readOnly: true });
+      try { checkCompleteDatabase(db, coverage); }
+      finally { db.close(); }
+      const compressed = join(temporary, 'remote-state.sqlite.gz');
+      await pipeline(createReadStream(checkpoint), createGzip(), createWriteStream(compressed));
+      assets.push(compressed);
+    }
     const notes = `Snapshot ${coverage.generated_at}: ${coverage.sku_buckets} saved SKU-day buckets. ` +
-      'Complete matching SKU and catalog CSV downloads; no local database or individual transactions uploaded. ' +
+      'Complete matching SKU and catalog CSV downloads; no private data or individual transactions uploaded. ' +
       'Coverage remains partial/unverified; see coverage.json for sweep progress and source dates.';
     try { command('gh', ['release', 'view', tag, '--repo', repo]); }
     catch { command('gh', ['release', 'create', tag, '--repo', repo, '--target', 'main',
       '--title', 'Daily Pokemon sales-volume downloads', '--notes', notes]); }
-    command('gh', ['release', 'upload', tag, '--repo', repo, '--clobber',
-      ...assetFiles.map(name => join(output, name))]);
+    command('gh', ['release', 'upload', tag, '--repo', repo, '--clobber', ...assets]);
     command('gh', ['release', 'edit', tag, '--repo', repo, '--notes', notes]);
     command('git', ['add', '--', 'README.md', ...reportFiles.map(name => `reports/latest/${name}`)], checkout);
     command('git', ['commit',
@@ -330,6 +351,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (args[0] === '--needs-collection' && args.length <= 2) {
       console.log(await needsDailyCollection(
         JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8'))));
+    } else if (args[0] === '--check-stored' && args.length === 2) {
+      const db = new DatabaseSync(resolve(args[1]), { readOnly: true });
+      try { console.log(JSON.stringify(checkStoredSweep(db))); }
+      finally { db.close(); }
     } else if (['--check','--complete'].includes(args[0]) &&
         args.length <= (args[0] === '--complete' ? 3 : 2)) {
       const coverage = JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8'));
@@ -340,10 +365,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         finally { db.close(); }
       }
       console.log('Daily GitHub data passed its checks; marketplace completeness remains unverified.');
-    } else if (!args.length) {
+    } else if (!args.length || args.length === 1 && args[0] === '--from-export') {
       const dir = resolve(process.env.DATA_DIR ?? 'data');
       if (!statSync(join(dir, 'sales.sqlite')).size) throw new Error('Sales database is empty.');
-      await publishGitHub(dir);
-    } else throw new Error('Usage: npm run publish -- [--check|--needs-collection [COVERAGE_JSON] | --complete COVERAGE_JSON [PUBLIC_SQLITE]]');
+      await publishGitHub(dir, { fromExport: args[0] === '--from-export' });
+    } else throw new Error('Usage: npm run publish -- [--from-export | --check | --check-stored PUBLIC_SQLITE | --needs-collection [COVERAGE_JSON] | --complete COVERAGE_JSON [PUBLIC_SQLITE]]');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

@@ -1,6 +1,10 @@
-import { createReadStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { createInterface } from 'node:readline';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { Store, volumeSource } from './store.js';
 import { saveMonthHistory } from './volume.js';
@@ -25,7 +29,8 @@ export async function importHistory(store, path, now = new Date()) {
       line++;
       if (!text.trim()) continue;
       if (Buffer.byteLength(text) > 5_000_000) throw new Error('History line exceeds 5 MB.');
-      const row = JSON.parse(text);
+      let row;
+      try { row = JSON.parse(text); } catch { throw new Error('Invalid JSON in history export.'); }
       if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error('Expected a JSON object.');
       if (!observed) {
         const time = Date.parse(row.observed_at);
@@ -73,11 +78,50 @@ export async function importHistory(store, path, now = new Date()) {
     products_with_history: withHistory, products_without_history: products - withHistory, buckets };
 }
 
+export async function fetchHistoryExport(store, address, {
+  fetcher = fetch, now = () => new Date(),
+} = {}) {
+  let url;
+  try { url = new URL(address); } catch { throw new Error('Configure an approved HTTPS history export URL.'); }
+  if (url.protocol !== 'https:' || url.username || url.password || url.hash) {
+    throw new Error('Configure an approved HTTPS history export URL without inline credentials.');
+  }
+  const directory = await mkdtemp(join(tmpdir(), 'tcg-history-export-'));
+  const path = join(directory, 'history.jsonl');
+  try {
+    let response;
+    try { response = await fetcher(url, { redirect: 'error', signal: AbortSignal.timeout(600_000) }); }
+    catch { throw new Error('Authorized history export request failed or redirected.'); }
+    if (response.status !== 200 || !response.body) {
+      await response.body?.cancel();
+      throw new Error(`Authorized history export unavailable (HTTP ${response.status}).`);
+    }
+    try {
+      await pipeline(Readable.fromWeb(response.body), async function* (chunks) {
+        let bytes = 0;
+        for await (const chunk of chunks) {
+          bytes += chunk.length;
+          if (bytes > 4 * 1024 ** 3) throw new Error('Export too large.');
+          yield chunk;
+        }
+      }, createWriteStream(path, { mode: 0o600 }));
+    } catch { throw new Error('Authorized history export download was incomplete or exceeded 4 GiB.'); }
+    return await importHistory(store, path, now());
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    if (process.argv.length !== 3) throw new Error('Usage: npm run import:history -- AUTHORIZED_EXPORT.jsonl');
+    if (process.argv.length !== 3) {
+      throw new Error('Usage: npm run import:history -- AUTHORIZED_EXPORT.jsonl | --download');
+    }
     const store = new Store(resolve(process.env.DATA_DIR ?? 'data', 'sales.sqlite'));
-    try { console.log(JSON.stringify(await importHistory(store, resolve(process.argv[2])), null, 2)); }
+    try {
+      const result = process.argv[2] === '--download'
+        ? await fetchHistoryExport(store, process.env.TCGPLAYER_HISTORY_EXPORT_URL)
+        : await importHistory(store, resolve(process.argv[2]));
+      console.log(JSON.stringify(result, null, 2));
+    }
     finally { store.close(); }
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }
