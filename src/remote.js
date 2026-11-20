@@ -50,9 +50,10 @@ export function publicCheckpoint(source, destination) {
 export async function collectRemote(store, {
   limit = 25000, signal, refreshCatalog = syncCatalog, createTransport = historyBrowser,
   pause = delay => sleep(delay, undefined, { signal }), log = console.log, now = () => new Date(),
+  requestPause = () => sleep(500, undefined, { signal }),
 } = {}) {
   const queueDate = now().toISOString().slice(0,10);
-  let failures = 0, remaining = limit;
+  let failures = 0, remaining = limit, denialRechecks = 0;
   const completed = () => store.db.prepare(`SELECT count(*) AS n FROM volume_jobs
     WHERE status IN ('success','empty')`).get().n;
   while (remaining > 0) {
@@ -64,18 +65,27 @@ export async function collectRemote(store, {
       if (signal?.aborted) return null;
       transport = await createTransport();
       let state;
-      do {
-        state = await syncVolume(store, { ...transport, limit: remaining - requests, signal, log, now, queueDate,
-          fetchHistory: async id => {
-            requests++;
-            try { return await transport.fetchHistory(id); }
-            catch (error) {
-              if (error.status == null) error.code = 'HISTORY_TRANSPORT';
-              throw error;
-            }
-          } });
-      } while (state.status === 'paused' && requests < remaining && !signal?.aborted);
-      return state;
+      while (requests < remaining && !signal?.aborted) {
+        try {
+          state = await syncVolume(store, { ...transport, limit: remaining - requests, signal, log, now, queueDate,
+            pause: requestPause,
+            fetchHistory: async id => {
+              requests++;
+              try { return await transport.fetchHistory(id); }
+              catch (error) {
+                if (error.status == null) error.code = 'HISTORY_TRANSPORT';
+                throw error;
+              }
+            } });
+          if (state.status !== 'paused') return state;
+        } catch (error) {
+          if (error.status !== 403 || denialRechecks || completed() === before || requests >= remaining) throw error;
+          denialRechecks++;
+          log('History HTTP 403 after successful observations; pausing requests for 30 minutes before one same-session recheck.');
+          await pause(1800000);
+        }
+      }
+      return signal?.aborted ? null : state;
     } catch (error) {
       if (signal?.aborted) return null;
       remaining -= requests;

@@ -142,6 +142,14 @@ does not stage or change the development worktree. `main` is the only branch;
 if code advances during publication, the report commit is rebased onto it
 before retrying the push.
 
+Remote passes wait at least 500 ms between history requests. If HTTP 403
+interrupts an otherwise productive session, collection stops making requests
+for 30 minutes before one recheck in the same browser session. This allowance
+does not reset after more progress. An initial denial, HTTP 401, a second
+denial, or an exhausted request/time budget stops the pass; missing products
+remain failed or pending rather than becoming empty histories. No proxies,
+network changes or replacement identities are used for that recheck.
+
 The [daily-volume release](https://github.com/hanshanley/pokemon-tcg/releases/tag/daily-volume)
 contains **all retained daily SKU buckets** and the entire current product
 catalog as compressed CSVs, alongside the aggregate reports. Downloads are not

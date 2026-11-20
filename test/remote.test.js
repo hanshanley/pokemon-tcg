@@ -371,13 +371,13 @@ test('rate limits retain their thirty-minute backoff even after productive progr
   assert.deepEqual(waits,[1800000]);
 });
 
-test('a denial after committed progress still stops immediately without another transport', async t => {
+test('a denial at the request limit stops without waiting or creating another transport', async t => {
   const store = new Store(':memory:');
   t.after(() => store.close());
   for (let id = 1; id <= 2; id++) store.db.prepare(`INSERT INTO catalog_products VALUES
     (?,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run(id);
   let starts = 0, closed = 0, requests = 0;
-  await assert.rejects(collectRemote(store, { limit: 10,
+  await assert.rejects(collectRemote(store, { limit: 2,
     refreshCatalog: async () => {}, log: () => {},
     pause: async () => { throw new Error('Must not retry a denial'); },
     createTransport: async () => {
@@ -389,4 +389,54 @@ test('a denial after committed progress still stops immediately without another 
   assert.equal(closed, 1);
   assert.equal(requests, 2);
   assert.equal(store.db.prepare("SELECT count(*) n FROM volume_jobs WHERE status='empty'").get().n, 1);
+});
+
+test('one intermittent denial after progress recovers in the same session after a thirty-minute cooldown', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  for (let id = 1; id <= 2; id++) store.db.prepare(`INSERT INTO catalog_products VALUES
+    (?,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run(id);
+  let starts = 0, closed = 0;
+  const calls = [], waits = [];
+  const state = await collectRemote(store, { limit: 3,
+    refreshCatalog: async () => {}, requestPause: async () => {}, log: () => {},
+    pause: async delay => waits.push(delay),
+    createTransport: async () => {
+      starts++;
+      return { fetchHistory: async id => {
+        calls.push(id);
+        return { status: calls.length === 2 ? 403 : 200, body: { count: 0 } };
+      }, close: async () => { closed++; } };
+    },
+  });
+  assert.deepEqual(calls, [1, 2, 2]);
+  assert.deepEqual(waits, [1800000]);
+  assert.equal(starts, 1);
+  assert.equal(closed, 1);
+  assert.equal(state.status, 'complete');
+  assert.equal(state.products_checked, 2);
+  assert.equal(state.products_failed, 0);
+});
+
+test('a second denial stops the pass even after more progress, preserving the failed product', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  for (let id = 1; id <= 3; id++) store.db.prepare(`INSERT INTO catalog_products VALUES
+    (?,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run(id);
+  let closed = 0;
+  const calls = [], waits = [];
+  await assert.rejects(collectRemote(store, { limit: 10,
+    refreshCatalog: async () => {}, requestPause: async () => {}, log: () => {},
+    pause: async delay => waits.push(delay),
+    createTransport: async () => ({ fetchHistory: async id => {
+      calls.push(id);
+      return { status: calls.length === 2 || id === 3 ? 403 : 200, body: { count: 0 } };
+    }, close: async () => { closed++; } }),
+  }), /HTTP 403/);
+  assert.deepEqual(calls, [1, 2, 2, 3]);
+  assert.deepEqual(waits, [1800000]);
+  assert.equal(closed, 1);
+  assert.equal(store.db.prepare('SELECT status FROM volume_runs').get().status, 'failed');
+  assert.equal(store.db.prepare("SELECT count(*) n FROM volume_jobs WHERE status='empty'").get().n, 2);
+  assert.equal(store.db.prepare("SELECT status FROM volume_jobs WHERE product_id=3").get().status, 'failed');
 });
