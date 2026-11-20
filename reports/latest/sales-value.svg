@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800" role="img" aria-labelledby="title description">
 <title id="title">Daily Pokemon sales value on TCGplayer</title>
-<desc id="description">Pokemon sales value from 2026-10-06 to 2026-11-17. A line joins range midpoints with a shaded low-high band, not confidence intervals. Missing or unverified dates break the line and band. 43 dates shown. 7 retained dates excluded because coverage was unverified or preliminary. Latest collection sweep: 55,699 / 63,965 products checked; 1 failed. 0 dates omitted for incomplete prices.</desc>
+<desc id="description">Pokemon sales value from 2026-10-06 to 2026-11-17. A line joins range midpoints with a shaded low-high band, not confidence intervals. Missing or unverified dates break the line and band. 43 dates shown. 7 retained dates excluded because coverage was unverified or preliminary. Latest collection sweep: 56,991 / 63,965 products checked; 1 failed. 0 dates omitted for incomplete prices.</desc>
 <style>text{font-family:Georgia,"Liberation Serif","Times New Roman",serif;fill:#1A1A1A;font-size:19px}.title{font-size:32px;font-weight:600}.muted,.axis{fill:#6B6B6B}.axis{font-size:18px}.note{font-size:16px;fill:#6B6B6B}.grid{stroke:#D6D3CC;stroke-width:1}</style>
 <rect data-role="background" width="1200" height="800" fill="#F7F5F0"/>
 <text x="60" y="48" class="title">Daily Pokemon sales value on TCGplayer</text>
@@ -13,5 +13,5 @@
 <text x="60" y="679" class="muted">Line: daily range midpoint. Shading: low–high bounds. Blank dates are not zero sales.</text>
 <text x="60" y="714" class="note">Ranges use actual SKU-day low/high sale prices × quantity; not exact revenue or confidence intervals.</text>
 <text x="60" y="740" class="note">Source timezone unpublished; catalog coverage is not marketplace completeness.</text>
-<text x="60" y="766" class="note">Source: TCGplayer native SKU-day histories. Last successful source check: 2026-11-20 21:30 UTC.</text>
+<text x="60" y="766" class="note">Source: TCGplayer native SKU-day histories. Last successful source check: 2026-11-20 21:43 UTC.</text>
 </svg>
