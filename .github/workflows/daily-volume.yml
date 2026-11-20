@@ -39,10 +39,14 @@ jobs:
           TCGPLAYER_HISTORY_ACCESS: ${{ vars.TCGPLAYER_HISTORY_ACCESS }}
         run: |
           case "$TCGPLAYER_HISTORY_ACCESS" in
-            approved) mode=native ;;
+            ''|approved) mode=native ;;
             approved-export) mode=export ;;
+            paused)
+              echo "::error::Daily TCGplayer collection is explicitly paused. Saved reports were not changed."
+              exit 1
+              ;;
             *)
-              echo "::error::Daily TCGplayer collection is paused: approved access to the daily history feed is required. Saved reports were not changed."
+              echo "::error::Unknown TCGPLAYER_HISTORY_ACCESS value; use approved, approved-export, or paused, or leave it unset for native collection."
               exit 1
               ;;
           esac

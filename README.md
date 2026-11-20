@@ -123,12 +123,12 @@ and what would be needed to connect them.
 
 ## Automatic updates
 
-**Daily TCGplayer volume collection is paused.** TCGplayer denied access
-to the daily history source; the chart and leaderboard still show verified
-historical dates. An authorized export covering a single closed day can be
+**Daily TCGplayer volume collection runs on GitHub-hosted runners.** Source
+failures stop the affected pass and retain its queue for a later scheduled run;
+they do not permanently disable collection. An authorized export covering a single closed day can be
 [retrieved automatically or imported offline](docs/methodology.md#offline-daily-history-recovery).
 
-When approved source access is available, the [daily volume workflow](.github/workflows/daily-volume.yml) runs at
+The [daily volume workflow](.github/workflows/daily-volume.yml) runs at
 **00:15 UTC**, with catch-up checks at **06:15, 12:15 and 18:15 UTC**, on
 GitHub-hosted runners. An incomplete sweep resumes its saved queue; a complete
 sweep is skipped only if the source catalog build is unchanged.

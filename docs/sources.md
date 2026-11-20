@@ -144,7 +144,12 @@ own coverage flags rather than an all-sales claim.
 
 ## Daily feed alternatives
 
-The native collector is paused after source denials. TCGplayer's
+Native collection can be interrupted by source denials, but is not permanently
+disabled by them. On November 20, a fresh GitHub-hosted runner verified the
+unchanged daily-history transport with HTTP 200 and 270 daily SKU buckets for
+product `85874`, while requests from the local environment returned HTTP 403.
+An unset workflow variable must not turn a runner-specific failure into a
+permanent collection lockout. TCGplayer's
 [developer portal](https://docs.tcgplayer.com/docs/getting-started) says it is
 not granting new API access, and its
 [site terms](https://help.tcgplayer.com/hc/en-us/articles/205004918-Terms-of-Service)

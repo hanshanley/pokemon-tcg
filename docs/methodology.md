@@ -109,11 +109,12 @@ repeat at the next 00:15 UTC, refreshing the bulk catalog first.
 
 ## Daily GitHub updates
 
-The daily volume workflow stops before collection unless the repository
-Actions variable `TCGPLAYER_HISTORY_ACCESS` is `approved` (native collection)
-or `approved-export` (authorized bulk delivery). Set it only after obtaining
-access for scheduled retrieval and publication of the daily SKU history. A
-manual dispatch does not override this gate. A paused workflow does not
+The daily volume workflow defaults to the native public storefront transport
+when the repository Actions variable `TCGPLAYER_HISTORY_ACCESS` is unset;
+`approved` retains the same native mode for existing configurations.
+Use `approved-export` for authorized bulk delivery, or `paused` to explicitly
+stop collection. Unknown values fail rather than silently selecting a source.
+A manual dispatch does not override an explicit pause. A paused workflow does not
 upload a new checkpoint or update reports; the independent health check
 still requires a full, fresh sweep.
 

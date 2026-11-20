@@ -9,6 +9,21 @@ import { saveMonthHistory } from '../src/volume.js';
 import { exportSnapshot } from '../src/publish.js';
 import { dailyCsv } from '../src/figures.js';
 import { gunzipSync } from 'node:zlib';
+import { execFileSync } from 'node:child_process';
+
+test('daily workflow defaults to native collection while retaining explicit pause and export modes', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/daily-volume.yml', import.meta.url), 'utf8');
+  const selector = workflow.match(/          case "\$TCGPLAYER_HISTORY_ACCESS" in\n[\s\S]*?          esac/)[0];
+  const mode = access => execFileSync('bash', ['-e', '-c', `${selector}\nprintf '%s' "$mode"`], {
+    encoding: 'utf8', env: { ...process.env, TCGPLAYER_HISTORY_ACCESS: access },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  assert.equal(mode(''), 'native');
+  assert.equal(mode('approved'), 'native');
+  assert.equal(mode('approved-export'), 'export');
+  assert.throws(() => mode('paused'), error => error.status === 1 && /explicitly paused/.test(error.stdout));
+  assert.throws(() => mode('invalid'), error => error.status === 1 && /Unknown/.test(error.stdout));
+});
 
 test('historical backfills survive newer rolling windows, public checkpoints and complete downloads', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'pokemon-retained-history-'));
