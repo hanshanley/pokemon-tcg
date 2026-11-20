@@ -26,19 +26,26 @@ test('daily import keeps each sample observation but counts repeated listing/dat
     const data = endpoint.endsWith(old) ? [row] : [updated,sameItemLater];
     return { encoding: 'base64', content: Buffer.from(JSON.stringify(data)).toString('base64') };
   };
-  assert.equal(updateSample(dir, read).distinct_listings, 1);
+  assert.equal(updateSample(dir, read, new Date('2026-11-19T13:00:00Z')).distinct_listings, 1);
   version = 2;
-  const coverage = updateSample(dir, read);
+  const now = new Date('2026-11-20T13:00:00Z');
+  const coverage = updateSample(dir, read, now);
   assert.equal(coverage.distinct_listings, 2);
   assert.equal(coverage.sample_rows, 3);
   assert.equal(coverage.last_capture_at, '2026-11-20T09:00:00.000Z');
-  assert.deepEqual(updateSample(dir, read), coverage);
+  assert.deepEqual(updateSample(dir, read, now), coverage);
   assert.equal(fetched, 2);
   const csv = readFileSync(join(dir, 'listings.csv'), 'utf8');
   assert.match(csv, /asking price; accepted offer undisclosed/);
   assert.doesNotMatch(csv, /transaction_count|quantity|paid_price|Not archived/);
   assert.match(readFileSync(join(dir, 'daily.csv'), 'utf8'), /"2026-11-18","1"\r\n"2026-11-19","1"/);
   assert.equal(readFileSync(join(dir, 'observations.csv'), 'utf8').trim().split('\r\n').length, 4);
+  const files = ['samples.json', 'observations.csv', 'listings.csv', 'daily.csv', 'coverage.json'];
+  const before = files.map(file => readFileSync(join(dir, file), 'utf8'));
+  for (const invalidNow of ['2026-11-21T15:20:00Z', '2026-11-20T08:54:00Z']) {
+    assert.throws(() => updateSample(dir, read, new Date(invalidNow)), /stale or invalid/);
+    assert.deepEqual(files.map(file => readFileSync(join(dir, file), 'utf8')), before);
+  }
 });
 
 test('unexpected price units, impossible dates and foreign listing links fail validation', () => {

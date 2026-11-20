@@ -73,7 +73,7 @@ function github(path) {
   }));
 }
 
-export function updateSample(directory, read = github) {
+export function updateSample(directory, read = github, now = new Date()) {
   let samples;
   try { samples = JSON.parse(readFileSync(join(directory, 'samples.json'), 'utf8')); }
   catch (error) { if (error.code !== 'ENOENT') throw error; samples = []; }
@@ -95,11 +95,16 @@ export function updateSample(directory, read = github) {
   }
   const { listings, daily } = summarizeSamples(samples);
   const observations = samples.flatMap(({revision, rows}) => rows.map(row => ({ ...row, revision })));
+  const lastCapture = observations.reduce((last, row) => last < row.captured_at ? row.captured_at : last, '');
+  const age = now.getTime() - Date.parse(lastCapture);
+  if (!Number.isFinite(age) || age < -5 * 60_000 || age > 30 * 3_600_000) {
+    throw new Error(`Public eBay sample capture is stale or invalid (${lastCapture || 'missing'}); retained reports were not changed.`);
+  }
   const coverage = {
     provider: 'Jsonify', marketplace: 'eBay US', source, license: 'CC BY 4.0',
     license_url: 'https://creativecommons.org/licenses/by/4.0/',
     revisions: samples.length, sample_rows: observations.length, distinct_listings: listings.length,
-    last_capture_at: observations.reduce((last, row) => last < row.captured_at ? row.captured_at : last, ''),
+    last_capture_at: lastCapture,
     first_sold_date: daily[0].sold_date, last_sold_date: daily.at(-1).sold_date,
     coverage: 'Rotating public sample; not the complete provider dataset, all eBay sales, or TCGplayer sales. Distinct listing ID and sale date pairs, not units or unique transactions.',
     changes: 'Retained factual listing fields only; images and listing titles omitted. Repeated listing/date pairs count once in summaries. Displayed prices may not be the paid amount; no dollar totals.',

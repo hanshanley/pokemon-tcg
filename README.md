@@ -91,6 +91,8 @@ rotating Jsonify sample, not the entire market. The scheduled job preserves
 [every retained observation](reports/ebay-sample/observations.csv) and
 [all distinct listing/date pairs](reports/ebay-sample/listings.csv).
 See the [capture date and coverage](reports/ebay-sample/coverage.json).
+If the newest capture is more than 30 hours old, the job fails instead of
+republishing the archive as fresh.
 Listing counts are not card quantities or transactions; displayed prices
 can include asking prices for undisclosed offers. This sample is never merged
 with TCGplayer.
