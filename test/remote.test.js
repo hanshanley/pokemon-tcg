@@ -440,3 +440,26 @@ test('a second denial stops the pass even after more progress, preserving the fa
   assert.equal(store.db.prepare("SELECT count(*) n FROM volume_jobs WHERE status='empty'").get().n, 2);
   assert.equal(store.db.prepare("SELECT status FROM volume_jobs WHERE product_id=3").get().status, 'failed');
 });
+
+test('a collection deadline during request pacing leaves the queue paused without failing a product', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  store.db.prepare(`INSERT INTO catalog_products VALUES
+    (1,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run();
+  const controller = new AbortController();
+  let closed = 0, timer;
+  t.after(() => clearTimeout(timer));
+  const state = await collectRemote(store, {
+    signal: controller.signal, refreshCatalog: async () => {}, log: () => {},
+    createTransport: async () => {
+      timer = setTimeout(() => controller.abort(), 10);
+      return { fetchHistory: async () => assert.fail('Deadline expired before making a request.'),
+        close: async () => { closed++; } };
+    },
+  });
+  assert.equal(state, null);
+  assert.equal(closed, 1);
+  assert.equal(store.db.prepare('SELECT status FROM volume_runs').get().status, 'paused');
+  assert.deepEqual({ ...store.db.prepare('SELECT status,attempts FROM volume_jobs').get() },
+    { status: 'pending', attempts: 0 });
+});

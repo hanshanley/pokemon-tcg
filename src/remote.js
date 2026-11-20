@@ -50,7 +50,7 @@ export function publicCheckpoint(source, destination) {
 export async function collectRemote(store, {
   limit = 25000, signal, refreshCatalog = syncCatalog, createTransport = historyBrowser,
   pause = delay => sleep(delay, undefined, { signal }), log = console.log, now = () => new Date(),
-  requestPause = () => sleep(500, undefined, { signal }),
+  requestPause = () => sleep(500),
 } = {}) {
   const queueDate = now().toISOString().slice(0,10);
   let failures = 0, remaining = limit, denialRechecks = 0;
