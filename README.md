@@ -66,9 +66,9 @@ The two datasets are never added together.
 
 | Rank | Pokemon | Units sold | Reported transactions |
 | ---: | --- | ---: | ---: |
-| 1 | Pikachu | 5,763 | 3,551 |
-| 2 | Eevee | 1,291 | 717 |
-| 3 | Mewtwo | 1,129 | 665 |
+| 1 | Pikachu | 5,758 | 3,548 |
+| 2 | Eevee | 1,287 | 716 |
+| 3 | Mewtwo | 1,128 | 664 |
 | 4 | Mew | 1,106 | 538 |
 | 5 | Gengar | 961 | 537 |
 | 6 | Meowth | 921 | 658 |
