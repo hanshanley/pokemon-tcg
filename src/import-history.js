@@ -13,7 +13,7 @@ export async function importHistory(store, path, now = new Date()) {
   const db = store.db;
   const input = createReadStream(path);
   const lines = createInterface({ input, crlfDelay: Infinity });
-  let line = 0, date, observed, products = 0, withHistory = 0, buckets = 0;
+  let line = 0, date, observed, closedDay, products = 0, withHistory = 0, buckets = 0;
   let remaining;
   db.exec('BEGIN IMMEDIATE');
   try {
@@ -34,7 +34,7 @@ export async function importHistory(store, path, now = new Date()) {
       if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error('Expected a JSON object.');
       if (!observed) {
         const time = Date.parse(row.observed_at);
-        if (row.format !== 'tcgplayer-sku-history-v1' || row.source !== volumeSource ||
+        if (!['tcgplayer-sku-history-v1', 'tcgplayer-sku-day-v1'].includes(row.format) || row.source !== volumeSource ||
             row.catalog_source_build !== build || row.products_expected !== catalog.length ||
             !Number.isFinite(time) || new Date(time).toISOString() !== row.observed_at ||
             time > now.getTime() || row.observed_at.slice(0, 10) !== now.toISOString().slice(0, 10)) {
@@ -42,6 +42,15 @@ export async function importHistory(store, path, now = new Date()) {
         }
         observed = row.observed_at;
         date = observed.slice(0, 10);
+        if (row.format === 'tcgplayer-sku-day-v1') {
+          closedDay = new Date(Date.parse(date) - 86400000).toISOString().slice(0, 10);
+          if (row.source_date !== closedDay) throw new Error('Daily export must identify the previous closed UTC source date.');
+        }
+        const existingDay = db.prepare('SELECT source_date FROM volume_export_days WHERE date_utc=?').get(date);
+        const existingRun = db.prepare('SELECT status FROM volume_runs WHERE date_utc=?').get(date);
+        if (existingDay && !closedDay || closedDay && !existingDay && existingRun?.status === 'complete') {
+          throw new Error('Cannot replace a completed sweep with a different export format.');
+        }
         if (db.prepare(`SELECT 1 FROM price_checks p JOIN catalog_products c USING(product_id)
           WHERE c.is_current=1 AND p.checked_at>=? LIMIT 1`).get(observed)) {
           throw new Error('Export must be newer than the existing saved observations.');
@@ -58,7 +67,8 @@ export async function importHistory(store, path, now = new Date()) {
         throw new Error('Each product must explicitly provide its history, including an empty result if applicable.');
       }
       addJob.run(date, row.product_id);
-      const saved = saveMonthHistory(store, row.product_id, row.history, observed, date, date);
+      const saved = saveMonthHistory(store, row.product_id, row.history, observed, date,
+        closedDay ?? date, closedDay ? 1 : 30);
       products++;
       buckets += saved;
       withHistory += Number(saved > 0);
@@ -69,13 +79,15 @@ export async function importHistory(store, path, now = new Date()) {
     db.prepare(`UPDATE volume_runs SET updated_at=?,finished_at=?,status='complete',warning='Offline authorized export',
       products_expected=?,products_checked=?,products_with_history=?,products_without_history=?,products_failed=0
       WHERE date_utc=?`).run(observed, observed, products, products, withHistory, products - withHistory, date);
+    if (closedDay) db.prepare('INSERT OR IGNORE INTO volume_export_days VALUES (?,?)').run(date, closedDay);
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
     throw new Error(`History import rejected at line ${line}; no rows committed: ${error.message}`);
   } finally { lines.close(); input.destroy(); }
   return { source: volumeSource, observed_at: observed, products_checked: products,
-    products_with_history: withHistory, products_without_history: products - withHistory, buckets };
+    products_with_history: withHistory, products_without_history: products - withHistory, buckets,
+    ...(closedDay ? { source_date: closedDay } : {}) };
 }
 
 export async function fetchHistoryExport(store, address, {

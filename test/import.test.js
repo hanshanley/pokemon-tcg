@@ -1,16 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../src/store.js';
 import { importTransactions } from '../src/import.js';
 import { fetchHistoryExport, importHistory } from '../src/import-history.js';
-import { checkCompleteDatabase } from '../src/publish.js';
+import { checkCompleteDatabase, exportSnapshot } from '../src/publish.js';
+import { publicCheckpoint } from '../src/remote.js';
+import { syncVolume } from '../src/volume.js';
 
-function setup(t) {
+function setup(t, persistent = false) {
   const dir = mkdtempSync(join(tmpdir(), 'pokemon-bulk-import-'));
-  const store = new Store(':memory:');
+  const store = new Store(persistent ? join(dir, 'sales.sqlite') : ':memory:');
   t.after(() => { store.close(); rmSync(dir, { recursive: true }); });
   const insert = store.db.prepare(`INSERT INTO catalog_products VALUES
     (?,3,604,'Base Set',?,'','','','','[\"Charizard\"]','','build',1)`);
@@ -18,7 +20,7 @@ function setup(t) {
   insert.run(502001, 'Charizard Sealed Box');
   const path = join(dir, 'sales.jsonl');
   const save = rows => writeFileSync(path, rows.map(row => JSON.stringify(row)).join('\n'));
-  return { store, path, save };
+  return { store, path, save, dir };
 }
 const sale = (overrides = {}) => ({
   transaction_id: 'sale-a', product_id: 42382, kind: 'single',
@@ -43,11 +45,12 @@ function historyProduct(end = 31) {
   }] } };
 }
 
-function setupHistory(t) {
-  const { store, path, save } = setup(t);
+function setupHistory(t, persistent = false) {
+  const fixture = setup(t, persistent);
+  const { store } = fixture;
   store.db.prepare(`INSERT INTO catalog_runs (source_build,started_at,finished_at,status)
     VALUES ('build',?,?,'complete')`).run(exportTime, exportTime);
-  return { store, path, save };
+  return fixture;
 }
 
 test('offline history import restores a physically verifiable sweep, including explicit empty products', async t => {
@@ -126,6 +129,55 @@ test('approved export download does not retry, follow redirects, or import parti
     assert.equal(attempts, 1);
     assert.equal(store.db.prepare('SELECT count(*) AS n FROM volume_runs').get().n, 0);
   }
+});
+
+test('one approved closed day verifies and publishes without backfill or a newer bucket', async t => {
+  const { store, path, save, dir } = setupHistory(t, true);
+  const closed = '2026-10-30';
+  const dailyHeader = { ...header, format: 'tcgplayer-sku-day-v1', source_date: closed };
+  const daily = historyProduct(30);
+  daily.history.result[0].buckets.length = 1;
+  for (const [invalidHeader, invalidProduct, error] of [
+    [{ ...dailyHeader, source_date: '2026-10-31' }, daily, /previous closed/],
+    [dailyHeader, historyProduct(30), /Expected 1 one-day/],
+    [dailyHeader, { ...daily, history: { ...daily.history, result: [
+      { ...daily.history.result[0], buckets: [{ ...daily.history.result[0].buckets[0], bucketStartDate: '2026-10-29' }] },
+    ] } }, /required observation window/],
+  ]) {
+    save([invalidHeader, invalidProduct, emptyHistory]);
+    await assert.rejects(importHistory(store, path, importTime), error);
+    assert.equal(store.db.prepare('SELECT count(*) AS n FROM volume_export_days').get().n, 0);
+  }
+  const earlier = '2026-10-27';
+  const earlierProduct = historyProduct(27);
+  earlierProduct.history.result[0].buckets.length = 1;
+  save([{ ...dailyHeader, source_date: earlier, observed_at: '2026-10-28T12:00:00.000Z' },
+    earlierProduct, emptyHistory]);
+  await importHistory(store, path, new Date('2026-10-28T13:00:00.000Z'));
+
+  save([dailyHeader, daily, emptyHistory]);
+  assert.equal((await importHistory(store, path, importTime)).source_date, closed);
+  await assert.rejects(syncVolume(store, { now: () => importTime,
+    fetchHistory: () => assert.fail('Do not mix response formats in one sweep.') }), /closed-day export/);
+  const coverage = await exportSnapshot(store, dir, importTime);
+  assert.deepEqual(coverage.reporting_dates, [earlier, closed]);
+  assert.deepEqual(coverage.closed_export_dates, [earlier, closed]);
+  assert.equal(coverage.first_source_date, earlier);
+  assert.equal(coverage.last_source_date, closed);
+  const plotted = readFileSync(join(dir, 'sales-value.csv'), 'utf8');
+  assert.equal((plotted.match(/"historical","3","6","4.5"/g) ?? []).length, 2);
+  assert.doesNotMatch(plotted, /2026-10-28|2026-10-29/);
+  const checkpointPath = join(dir, 'checkpoint.sqlite');
+  publicCheckpoint(join(dir, 'sales.sqlite'), checkpointPath);
+  const checkpoint = new Store(checkpointPath);
+  try {
+    assert.equal(checkCompleteDatabase(checkpoint.db, coverage, importTime).products_checked, 2);
+    assert.throws(() => checkCompleteDatabase(checkpoint.db,
+      { ...coverage, closed_export_dates: [] }, importTime), /closed dates do not match/);
+    checkpoint.db.prepare('UPDATE daily_volume SET last_seen=?').run('2026-10-30T12:00:00.000Z');
+    assert.throws(() => checkCompleteDatabase(checkpoint.db, coverage, importTime),
+      /lack matching fresh saved history and price checks/);
+  } finally { checkpoint.close(); }
 });
 
 test('bulk imports deduplicate stable IDs, retain identical separate sales and aggregate directly in SQL', async t => {

@@ -51,6 +51,14 @@ export function checkCompleteSweep(coverage, now = new Date()) {
   }
 }
 
+function closedExports(db) {
+  if (!db.prepare(`SELECT 1 FROM sqlite_master WHERE type='table' AND name='volume_export_days'`).get()) {
+    return [];
+  }
+  return db.prepare(`SELECT e.date_utc,e.source_date FROM volume_export_days e
+    JOIN volume_runs r USING(date_utc) WHERE r.status='complete' ORDER BY e.source_date`).all();
+}
+
 export function checkCompleteDatabase(db, coverage, now = new Date()) {
   checkCompleteSweep(coverage, now);
   db.exec('SAVEPOINT verify_complete_database');
@@ -62,6 +70,11 @@ export function checkCompleteDatabase(db, coverage, now = new Date()) {
     const saved = db.prepare('SELECT * FROM volume_runs WHERE date_utc=?').get(sweep.date_utc);
     if (!saved || Object.keys(sweep).some(key => saved[key] !== sweep[key])) {
       throw new Error('Published coverage does not match the saved catalog sweep.');
+    }
+    const closed = closedExports(db);
+    const day = closed.find(row => row.date_utc === sweep.date_utc)?.source_date ?? null;
+    if (JSON.stringify(coverage.closed_export_dates ?? []) !== JSON.stringify(closed.map(row => row.source_date))) {
+      throw new Error('Published closed dates do not match the saved daily exports.');
     }
     const build = db.prepare(`SELECT source_build FROM catalog_runs
       WHERE status='complete' ORDER BY id DESC LIMIT 1`).get()?.source_build;
@@ -86,12 +99,15 @@ export function checkCompleteDatabase(db, coverage, now = new Date()) {
         julianday(j.fetched_at) IS NULL OR j.fetched_at<? OR j.fetched_at>?
         OR p.checked_at IS NULL OR p.checked_at<>j.fetched_at
         OR (j.status='empty' AND j.buckets<>0)
-        OR (j.status='success' AND (j.buckets<=0 OR j.buckets%30<>0))
+        OR (j.status='success' AND (j.buckets<=0 OR j.buckets%?<>0))
         OR j.buckets<>(SELECT count(*) FROM daily_volume v
-          WHERE v.product_id=j.product_id AND v.last_seen=j.fetched_at)
+          WHERE v.product_id=j.product_id AND v.last_seen=j.fetched_at
+            AND (? IS NULL OR v.date_source=?))
         OR j.buckets<>(SELECT count(*) FROM daily_sale_prices v
-          WHERE v.product_id=j.product_id AND v.observed_at=j.fetched_at)
-      )`).get(sweep.date_utc, `${sweep.date_utc}T00:00:00.000Z`, coverage.generated_at).n;
+          WHERE v.product_id=j.product_id AND v.observed_at=j.fetched_at
+            AND (? IS NULL OR v.date_source=?))
+      )`).get(sweep.date_utc, `${sweep.date_utc}T00:00:00.000Z`, coverage.generated_at,
+      day ? 1 : 30, day, day, day, day).n;
     if (inconsistent) {
       throw new Error(`${inconsistent} catalog products lack matching fresh saved history and price checks.`);
     }
@@ -126,6 +142,8 @@ function* csvChunks(rows, fields) {
 }
 
 export function verifiedReportingDates(db, latestDate) {
+  const closed = closedExports(db);
+  const closedQueues = new Set(closed.map(row => row.date_utc));
   const sweeps = db.prepare(`SELECT *, date(date_utc,'-29 days') AS window_start
     FROM volume_runs
     WHERE status='complete' AND products_failed=0 AND products_expected>0
@@ -141,9 +159,10 @@ export function verifiedReportingDates(db, latestDate) {
     FROM volume_jobs WHERE date_utc=?`);
   const dates = db.prepare(`SELECT DISTINCT date_source FROM daily_volume WHERE date_source<?`)
     .all(latestDate).map(row => row.date_source);
-  const verified = new Set();
+  const verified = new Set(closed.map(row => row.source_date));
   for (const run of sweeps) {
     const { date_utc: queue, window_start: start, finished_at: finished } = run;
+    if (closedQueues.has(queue)) continue;
     const candidates = dates.filter(date => date >= start && date < queue && !verified.has(date));
     if (!candidates.length) continue;
     const saved = counts.get(queue,finished,queue,finished,queue);
@@ -198,8 +217,10 @@ function snapshotState(db, now) {
   const run = db.prepare('SELECT * FROM volume_runs ORDER BY date_utc DESC LIMIT 1').get();
   const lastCheck = db.prepare(`SELECT max(fetched_at) AS date FROM volume_jobs
       WHERE status IN ('success','empty')`).get().date ?? totals.last_observed_at;
+  const closed = closedExports(db);
   return {
     source: volumeSource, generated_at: now.toISOString(), ...totals, last_successful_check_at: lastCheck,
+    ...(closed.length ? { closed_export_dates: closed.map(row => row.source_date) } : {}),
     catalog_products: db.prepare('SELECT count(*) AS n FROM catalog_products WHERE is_current=1').get().n,
     catalog_source_build: db.prepare(`SELECT source_build FROM catalog_runs
       WHERE status='complete' ORDER BY id DESC LIMIT 1`).get()?.source_build ?? null,

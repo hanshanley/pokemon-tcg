@@ -37,7 +37,7 @@ export function publicCheckpoint(source, destination) {
       INSERT INTO volume_jobs SELECT date_utc,product_id,status,attempts,fetched_at,buckets,''
         FROM original.volume_jobs;
     `);
-    for (const table of ['daily_sale_prices', 'price_checks']) {
+    for (const table of ['daily_sale_prices', 'price_checks', 'volume_export_days']) {
       if (target.db.prepare('SELECT 1 FROM original.sqlite_master WHERE type=? AND name=?')
         .get('table',table)) target.db.exec(`INSERT INTO ${table} SELECT * FROM original.${table}`);
     }

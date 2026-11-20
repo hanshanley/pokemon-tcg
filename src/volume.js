@@ -28,7 +28,7 @@ function salePrice(value) {
   return Math.round(Number(value) * 100);
 }
 
-export function monthHistory(payload) {
+export function monthHistory(payload, expectedDays = 30) {
   if (!payload || payload.error || !Number.isSafeInteger(payload.count) || payload.count < 0) {
     throw new Error('Unexpected daily-history response.');
   }
@@ -47,8 +47,8 @@ export function monthHistory(payload) {
         throw new Error(`Missing history ${field}.`);
       }
     }
-    if (!Array.isArray(sku.buckets) || sku.buckets.length !== 30) {
-      throw new Error('Expected 30 one-day buckets; coarser or incomplete history is not daily volume.');
+    if (!Array.isArray(sku.buckets) || sku.buckets.length !== expectedDays) {
+      throw new Error(`Expected ${expectedDays} one-day buckets; coarser or incomplete history is not daily volume.`);
     }
     const dates = [];
     for (const bucket of sku.buckets) {
@@ -82,10 +82,11 @@ export function monthHistory(payload) {
   return rows;
 }
 
-export function saveMonthHistory(store, productId, payload, now = new Date().toISOString(), runDate, requiredEndDate) {
-  const rows = monthHistory(payload);
+export function saveMonthHistory(store, productId, payload, now = new Date().toISOString(), runDate,
+  requiredEndDate, expectedDays = 30) {
+  const rows = monthHistory(payload, expectedDays);
   if (requiredEndDate) {
-    const start = new Date(Date.parse(requiredEndDate) - 29 * 86400000).toISOString().slice(0, 10);
+    const start = new Date(Date.parse(requiredEndDate) - (expectedDays - 1) * 86400000).toISOString().slice(0, 10);
     if (rows.some(row => row.date_source < start || row.date_source > requiredEndDate)) {
       throw new Error('History does not cover the required observation window.');
     }
@@ -142,6 +143,9 @@ export async function syncVolume(store, {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) ||
       new Date(date).toISOString().slice(0,10) !== date || date > started.slice(0,10)) {
     throw new Error('Provide a valid queue date no later than the observation date.');
+  }
+  if (store.db.prepare('SELECT 1 FROM volume_export_days WHERE date_utc=?').get(date)) {
+    throw new Error('This queue already contains a closed-day export; do not mix it with a native sweep.');
   }
   store.db.prepare(`INSERT OR IGNORE INTO volume_runs
     (date_utc,started_at,updated_at,status) VALUES (?,?,?,'paused')`).run(date, started, started);

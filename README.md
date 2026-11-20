@@ -125,7 +125,7 @@ and what would be needed to connect them.
 
 **Daily TCGplayer volume collection is paused.** TCGplayer denied access
 to the daily history source; the chart and leaderboard still show verified
-historical dates. A complete, authorized export can be
+historical dates. An authorized export covering a single closed day can be
 [retrieved automatically or imported offline](docs/methodology.md#offline-daily-history-recovery).
 
 When approved source access is available, the [daily volume workflow](.github/workflows/daily-volume.yml) runs at

@@ -173,6 +173,10 @@ export class Store {
         fetched_at TEXT, buckets INTEGER NOT NULL DEFAULT 0, warning TEXT NOT NULL DEFAULT '',
         PRIMARY KEY(date_utc,product_id)
       );
+      CREATE TABLE IF NOT EXISTS volume_export_days (
+        date_utc TEXT PRIMARY KEY NOT NULL REFERENCES volume_runs(date_utc),
+        source_date TEXT NOT NULL CHECK(date(source_date,'+1 day') IS date_utc)
+      );
       CREATE VIEW IF NOT EXISTS reported_volume AS
         SELECT v.*, 'tcgplayer-daily' AS source, c.name AS product_name,
           CASE WHEN v.kind <> 'single' THEN '[]'

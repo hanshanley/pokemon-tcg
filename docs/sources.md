@@ -205,8 +205,9 @@ public GitHub sample, not the eBay site or the full commercial dataset.
 Repeated listing/date pairs are counted once. Best Offers may show asking
 prices, so no daily revenue is reported.
 
-**Sample needed from a provider, not the project owner:** Request a seven-day
-export overlapping November 11–17, 2026, plus the latest closed source day.
+**Sample needed from a provider, not the project owner:** Request the latest
+closed source day. An overlapping day from November 11–17, 2026 would support
+a comparison with the saved benchmark, but backfill is not required.
 Ask for English and Japanese singles and sealed products, stable product and
 SKU IDs (or transaction IDs), separate units and transactions, sale value or
 observed sale-price bounds, currency, timezone, explicit empties versus missing

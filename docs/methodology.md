@@ -172,7 +172,9 @@ date is in the rolling history of a completed UTC sweep with all expected jobs
 saved as successful or empty. Every successful product must have at least its
 response's SKU count saved on the reporting day, plus a bucket on the later
 sweep date. Both must have been observed at or after the product's fetch in that
-sweep. The sweep date itself is excluded. The
+sweep. The sweep date itself is excluded. An authorized single-day export
+instead records the closed source date explicitly, and that date can be shown
+without a newer bucket. The
 leaderboard ranks units on the latest eligible date (ties by species key); the
 main dollar figure additionally requires all reported units to have prices.
 Other dates remain in the downloads. Verified catalog sweeps do not establish
@@ -407,8 +409,7 @@ separate data directory, then run:
 DATA_DIR=/path/to/restored npm run import:history -- /path/to/authorized-history.jsonl
 ```
 
-The first nonblank line is a JSON object with `format` set to
-`tcgplayer-sku-history-v1`, `source` set to `tcgplayer-daily`,
+The first nonblank line is a JSON object with `source` set to `tcgplayer-daily`,
 `catalog_source_build` and `products_expected` matching the restored complete
 catalog, and `observed_at` set to the actual export snapshot time (UTC ISO 8601
 with milliseconds, on the current UTC date). Every subsequent line contains
@@ -416,8 +417,12 @@ with milliseconds, on the current UTC date). Every subsequent line contains
 Include every current product exactly once. An explicitly empty response must
 be `{"count":0,"result":[]}`; do not use that for missing data.
 
-Nonempty responses must have 30 consecutive source dates per SKU ending on
-the UTC observation date. Price bounds can be absent, but quantities and
+For forward-only collection, set `format` to `tcgplayer-sku-day-v1` and
+`source_date` to the previous UTC date. The provider must supply final,
+closed-day aggregates for that date, with exactly one bucket per SKU.
+Historical gaps do not need backfill. The existing
+`tcgplayer-sku-history-v1` format still accepts 30 consecutive buckets per SKU
+ending on the UTC observation date. Price bounds can be absent, but quantities and
 transaction counts cannot. A stale or incomplete file rolls back the entire
 import. This is a local recovery command: it makes no network requests,
 does not grant access or verify licensing, and does not upload data. Run the
