@@ -109,6 +109,13 @@ repeat at the next 00:15 UTC, refreshing the bulk catalog first.
 
 ## Daily GitHub updates
 
+The daily volume workflow stops before collection unless the repository
+Actions variable `TCGPLAYER_HISTORY_ACCESS` is `approved`. Set it only after
+TCGplayer grants access for scheduled retrieval and publication of the daily
+SKU history. A manual dispatch does not override this gate. A paused workflow
+does not upload a new checkpoint or update reports; the independent health
+check still requires a full, fresh sweep.
+
 The GitHub Actions **Daily remote Pokemon sales** workflow is scheduled at
 **00:15 UTC daily**, with catch-up checks at **06:15, 12:15 and 18:15 UTC**,
 using GitHub-hosted Ubuntu runners, not this Mac.

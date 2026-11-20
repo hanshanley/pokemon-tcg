@@ -106,7 +106,11 @@ and what would be needed to connect them.
 
 ## Automatic updates
 
-[Daily volume collection](.github/workflows/daily-volume.yml) is scheduled at
+**Daily TCGplayer volume collection is paused.** TCGplayer denied access
+to the daily history source; the chart and leaderboard still show verified
+historical dates. No new catalog-wide sales are being reported.
+
+When approved source access is available, the [daily volume workflow](.github/workflows/daily-volume.yml) runs at
 **00:15 UTC**, with catch-up checks at **06:15, 12:15 and 18:15 UTC**, on
 GitHub-hosted runners. An incomplete sweep resumes its saved queue; a complete
 sweep is skipped only if the source catalog build is unchanged.

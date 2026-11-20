@@ -34,7 +34,13 @@ jobs:
           node-version: '22'
       - name: Check today's sweep and the current source catalog build
         id: plan
+        env:
+          TCGPLAYER_HISTORY_ACCESS: ${{ vars.TCGPLAYER_HISTORY_ACCESS }}
         run: |
+          if [[ "$TCGPLAYER_HISTORY_ACCESS" != "approved" ]]; then
+            echo "::error::Daily TCGplayer collection is paused: approved access to the daily history feed is required. Saved reports were not changed."
+            exit 1
+          fi
           git fetch --depth=1 origin main
           git show FETCH_HEAD:reports/latest/coverage.json > "$RUNNER_TEMP/coverage.json"
           needed=$(node src/publish.js --needs-collection "$RUNNER_TEMP/coverage.json")
@@ -58,7 +64,7 @@ jobs:
       max_products: ${{ format('{0}', inputs.max_products || 25000) }}
   verify:
     needs: [plan, third]
-    if: ${{ always() && !cancelled() }}
+    if: ${{ always() && !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
