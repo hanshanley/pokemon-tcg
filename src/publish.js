@@ -106,8 +106,11 @@ export function checkCompleteDatabase(db, coverage, now = new Date()) {
         OR j.buckets<>(SELECT count(*) FROM daily_sale_prices v
           WHERE v.product_id=j.product_id AND v.observed_at=j.fetched_at
             AND (? IS NULL OR v.date_source=?))
+        OR (? IS NULL AND j.status='success' AND NOT EXISTS (
+          SELECT 1 FROM daily_volume v WHERE v.product_id=j.product_id
+            AND v.date_source=j.date_utc AND v.last_seen=j.fetched_at))
       )`).get(sweep.date_utc, `${sweep.date_utc}T00:00:00.000Z`, coverage.generated_at,
-      day ? 1 : 30, day, day, day, day).n;
+      day ? 1 : 30, day, day, day, day, day).n;
     if (inconsistent) {
       throw new Error(`${inconsistent} catalog products lack matching fresh saved history and price checks.`);
     }
@@ -123,6 +126,8 @@ export function checkCompleteDatabase(db, coverage, now = new Date()) {
 export async function needsDailyCollection(coverage, { now = new Date(), fetcher = fetch } = {}) {
   try { checkCompleteSweep(coverage, now); }
   catch { return true; }
+  const closed = new Date(now.getTime() - 86400000).toISOString().slice(0,10);
+  if (!coverage.reporting_dates?.includes(closed)) return true;
   if (!coverage.catalog_source_build) return true;
   return coverage.catalog_source_build !== await sourceBuild(fetcher);
 }

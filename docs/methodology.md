@@ -125,6 +125,11 @@ Its preflight skips collection only when today's sweep is complete and the
 published `catalog_source_build` still matches the source's build marker.
 Otherwise it resumes the queue and refreshes the catalog, including newly
 published products. Scheduled GitHub starts can be delayed.
+Catch-up also requires the previous closed source date to have verified coverage.
+Successful native jobs whose cached history ends before the queue date are
+requeued on resume, without replaying products that already have current windows.
+The public checkpoint check rejects those stale native windows even when their
+request timestamps and row counts are otherwise fresh.
 Current-sweep counts exclude retired catalog IDs, while their saved sales and
 past queue records remain retained. A catalog change cannot silently drop a new
 product from the queue or count a retired failure against current coverage.

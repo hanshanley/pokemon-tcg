@@ -173,6 +173,29 @@ test('rate-limited or denied access stops the sweep rather than requesting every
   assert.equal(store.db.prepare('SELECT count(*) AS n FROM daily_volume').get().n, 0);
 });
 
+test('same-day resume refreshes cached windows ending before the queue date without replaying current products', async t => {
+  const store = setup(t), calls = [];
+  let cached = true;
+  const options = { now: () => new Date(`2026-10-31T${cached ? '12' : '13'}:00:00Z`),
+    pause: async () => {}, log: () => {}, fetchHistory: async id => {
+      calls.push(id);
+      if (id === 2) return { status: 200, body: { count: 0 } };
+      const body = history({ sku: id });
+      if (cached && id === 1) for (const bucket of body.result[0].buckets) {
+        bucket.bucketStartDate = new Date(Date.parse(bucket.bucketStartDate) - 86400000).toISOString().slice(0,10);
+      }
+      return { status: 200, body };
+    } };
+  await syncVolume(store, options);
+  cached = false;
+  const state = await syncVolume(store, options);
+  assert.deepEqual(calls, [1, 2, 3, 1]);
+  assert.equal(state.status, 'complete');
+  assert.equal(store.db.prepare(`SELECT fetched_at FROM volume_jobs WHERE product_id=1`).get().fetched_at,
+    '2026-10-31T13:00:00.000Z');
+  assert.equal(store.db.prepare(`SELECT count(*) AS n FROM daily_volume WHERE product_id=1`).get().n, 31);
+});
+
 test('an explicit queue date rejects malformed and future days before making history requests', async t => {
   const store = setup(t);
   for (const queueDate of ['2026-02-30','2026-11-19','not-a-date']) {

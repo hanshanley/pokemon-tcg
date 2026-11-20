@@ -154,9 +154,12 @@ export async function syncVolume(store, {
   store.db.prepare(`UPDATE volume_jobs SET status='pending',attempts=0,warning=''
     WHERE date_utc=? AND status='success'
       AND product_id IN (SELECT product_id FROM catalog_products WHERE is_current=1)
-      AND NOT EXISTS
+      AND (NOT EXISTS
       (SELECT 1 FROM price_checks p WHERE p.product_id=volume_jobs.product_id
-        AND p.checked_at>=?)`).run(date, `${date}T00:00:00.000Z`);
+        AND p.checked_at>=?) OR NOT EXISTS
+      (SELECT 1 FROM daily_volume v WHERE v.product_id=volume_jobs.product_id
+        AND v.date_source=volume_jobs.date_utc AND v.last_seen>=volume_jobs.fetched_at))`)
+    .run(date, `${date}T00:00:00.000Z`);
   const progress = (status, warning = '') => {
     store.db.prepare(`WITH current_jobs AS (
       SELECT j.status FROM volume_jobs j JOIN catalog_products c ON c.product_id=j.product_id

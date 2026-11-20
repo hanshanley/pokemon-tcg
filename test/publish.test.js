@@ -58,6 +58,7 @@ test('scheduled catch-up skips only a fresh complete sweep of the current source
   const now = new Date('2026-11-17T18:00:00Z');
   const complete = { source: 'tcgplayer-daily', sku_buckets: 30, catalog_products: 10,
     catalog_source_build: 'build-1', generated_at: now.toISOString(),
+    reporting_dates: ['2026-11-16'],
     last_successful_check_at: now.toISOString(),
     sweep: { date_utc: '2026-11-17', status: 'complete', products_expected: 10,
       products_checked: 10, products_with_history: 7, products_without_history: 3, products_failed: 0 } };
@@ -67,6 +68,7 @@ test('scheduled catch-up skips only a fresh complete sweep of the current source
     fetcher: async () => ({ ok: true, text: async () => 'build-2' }) }),true);
   assert.equal(await needsDailyCollection({ ...complete, catalog_source_build: null },current),true);
   const noFetch = { now, fetcher: async () => { throw new Error('Incomplete data must be resumed'); } };
+  assert.equal(await needsDailyCollection({ ...complete, reporting_dates: [] }, noFetch),true);
   for (const change of [{ status: 'paused' }, { products_checked: 9 }, { products_failed: 1 },
     { date_utc: '2026-11-16' }]) {
     assert.equal(await needsDailyCollection({ ...complete, sweep: { ...complete.sweep, ...change } },noFetch),true);
@@ -166,6 +168,7 @@ test('complete checkpoint verification checks every product and its saved rows, 
     ["DELETE FROM price_checks WHERE product_id=3", /fresh saved history/],
     ["DELETE FROM daily_sale_prices WHERE product_id=2; DELETE FROM daily_volume WHERE product_id=2", /fresh saved history/],
     ["DELETE FROM daily_sale_prices WHERE product_id=2", /fresh saved history/],
+    ["PRAGMA defer_foreign_keys=ON; UPDATE daily_volume SET date_source=date(date_source,'-30 days') WHERE product_id=2 AND date_source=(SELECT date_utc FROM volume_runs); UPDATE daily_sale_prices SET date_source=date(date_source,'-30 days') WHERE product_id=2 AND date_source=(SELECT date_utc FROM volume_runs)", /fresh saved history/],
     ["UPDATE daily_volume SET quantity=quantity+1 WHERE product_id=2", /daily totals/],
     ["UPDATE catalog_runs SET source_build='other'", /catalog build/],
     ["UPDATE volume_runs SET products_checked=2", /saved catalog sweep/],
