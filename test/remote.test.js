@@ -283,6 +283,7 @@ test('a reconnect across UTC midnight finishes the same queue without replaying 
       } };
     },
   });
+
   assert.deepEqual(calls,[1,2,3,2]);
   assert.equal(state.date_utc,'2026-11-17');
   assert.equal(state.status,'complete');
@@ -293,6 +294,23 @@ test('a reconnect across UTC midnight finishes the same queue without replaying 
     .get().fetched_at,'2026-11-18T00:00:01.000Z');
   assert.equal(store.db.prepare('SELECT checked_at FROM price_checks WHERE product_id=2')
     .get().checked_at,'2026-11-18T00:00:01.000Z');
+});
+
+test('a later workflow pass resumes its planned queue date after UTC midnight', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  store.db.prepare(`INSERT INTO catalog_products VALUES
+    (1,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run();
+  const state = await collectRemote(store, {
+    queueDate: '2026-11-20', now: () => new Date('2026-11-21T00:01:00Z'),
+    refreshCatalog: async () => {}, requestPause: async () => {}, log: () => {},
+    createTransport: async () => ({ fetchHistory: async () => ({ status: 200, body: { count: 0 } }),
+      close: async () => {} }),
+  });
+  assert.equal(state.date_utc, '2026-11-20');
+  assert.equal(state.status, 'complete');
+  assert.deepEqual(store.db.prepare('SELECT DISTINCT date_utc FROM volume_jobs').all()
+    .map(row => row.date_utc), ['2026-11-20']);
 });
 
 test('persistent trailing failures exhaust three attempts without reporting completion', async t => {

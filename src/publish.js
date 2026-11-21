@@ -35,11 +35,12 @@ export function checkFreshness(coverage, now = new Date()) {
   }
 }
 
-export function checkCompleteSweep(coverage, now = new Date()) {
+export function checkCompleteSweep(coverage, now = new Date(), date = now.toISOString().slice(0,10)) {
   checkFreshness(coverage, now);
   const sweep = coverage.sweep;
   if (!Number.isSafeInteger(coverage.catalog_products) || coverage.catalog_products < 1 ||
-      !sweep || sweep.date_utc !== now.toISOString().slice(0,10) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(date) || date > now.toISOString().slice(0,10) ||
+      !sweep || sweep.date_utc !== date ||
       sweep.status !== 'complete' || sweep.products_failed !== 0 ||
       sweep.products_checked !== sweep.products_expected ||
       sweep.products_with_history + sweep.products_without_history !== sweep.products_expected ||
@@ -47,7 +48,7 @@ export function checkCompleteSweep(coverage, now = new Date()) {
     throw new Error(`Catalog sweep is incomplete or failed: ${sweep?.products_checked ?? 'unknown'}/` +
       `${coverage.catalog_products ?? 'unknown'} products checked; ${sweep?.products_failed ?? 'unknown'} failed; ` +
       `queue ${sweep?.date_utc ?? 'unknown'} is ${sweep?.status ?? 'unknown'} ` +
-      `(required UTC date ${now.toISOString().slice(0,10)}). Retained data is not an all-product success.`);
+      `(required UTC date ${date}). Retained data is not an all-product success.`);
   }
 }
 
@@ -59,8 +60,8 @@ function closedExports(db) {
     JOIN volume_runs r USING(date_utc) WHERE r.status='complete' ORDER BY e.source_date`).all();
 }
 
-export function checkCompleteDatabase(db, coverage, now = new Date()) {
-  checkCompleteSweep(coverage, now);
+export function checkCompleteDatabase(db, coverage, now = new Date(), date = now.toISOString().slice(0,10)) {
+  checkCompleteSweep(coverage, now, date);
   db.exec('SAVEPOINT verify_complete_database');
   try {
     if (Object.values(db.prepare('PRAGMA quick_check').get())[0] !== 'ok') {
@@ -123,10 +124,12 @@ export function checkCompleteDatabase(db, coverage, now = new Date()) {
   } finally { db.exec('RELEASE verify_complete_database'); }
 }
 
-export async function needsDailyCollection(coverage, { now = new Date(), fetcher = fetch } = {}) {
-  try { checkCompleteSweep(coverage, now); }
+export async function needsDailyCollection(coverage, {
+  now = new Date(), fetcher = fetch, date = now.toISOString().slice(0,10),
+} = {}) {
+  try { checkCompleteSweep(coverage, now, date); }
   catch { return true; }
-  const closed = new Date(now.getTime() - 86400000).toISOString().slice(0,10);
+  const closed = new Date(Date.parse(date) - 86400000).toISOString().slice(0,10);
   if (!coverage.reporting_dates?.includes(closed)) return true;
   if (!coverage.catalog_source_build) return true;
   return coverage.catalog_source_build !== await sourceBuild(fetcher);
@@ -376,7 +379,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const args = process.argv.slice(2);
     if (args[0] === '--needs-collection' && args.length <= 2) {
       console.log(await needsDailyCollection(
-        JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8'))));
+        JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8')),
+        { date: process.env.COLLECTION_DATE }));
     } else if (args[0] === '--check-stored' && args.length === 2) {
       const db = new DatabaseSync(resolve(args[1]), { readOnly: true });
       try { console.log(JSON.stringify(checkStoredSweep(db))); }
@@ -384,10 +388,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     } else if (['--check','--complete'].includes(args[0]) &&
         args.length <= (args[0] === '--complete' ? 3 : 2)) {
       const coverage = JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8'));
-      (args[0] === '--complete' ? checkCompleteSweep : checkFreshness)(coverage);
+      (args[0] === '--complete' ? checkCompleteSweep : checkFreshness)(
+        coverage, new Date(), process.env.COLLECTION_DATE);
       if (args[2]) {
         const db = new DatabaseSync(resolve(args[2]), { readOnly: true });
-        try { console.log(JSON.stringify(checkCompleteDatabase(db, coverage))); }
+        try { console.log(JSON.stringify(checkCompleteDatabase(db, coverage, new Date(), process.env.COLLECTION_DATE))); }
         finally { db.close(); }
       }
       console.log('Daily GitHub data passed its checks; marketplace completeness remains unverified.');

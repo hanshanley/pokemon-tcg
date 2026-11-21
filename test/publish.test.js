@@ -64,6 +64,9 @@ test('scheduled catch-up skips only a fresh complete sweep of the current source
       products_checked: 10, products_with_history: 7, products_without_history: 3, products_failed: 0 } };
   const current = { now, fetcher: async () => ({ ok: true, text: async () => 'build-1\n' }) };
   assert.equal(await needsDailyCollection(complete,current),false);
+  const afterMidnight = new Date('2026-11-18T00:01:00Z');
+  assert.equal(await needsDailyCollection(complete,{ ...current, now: afterMidnight, date: '2026-11-17' }),false);
+  assert.equal(await needsDailyCollection(complete,{ ...current, now: afterMidnight }),true);
   assert.equal(await needsDailyCollection(complete,{ now,
     fetcher: async () => ({ ok: true, text: async () => 'build-2' }) }),true);
   assert.equal(await needsDailyCollection({ ...complete, catalog_source_build: null },current),true);
@@ -156,6 +159,10 @@ test('complete checkpoint verification checks every product and its saved rows, 
   assert.equal(valid.products_checked,3);
   assert.equal(valid.products_without_history,1);
   assert.equal(valid.inconsistent_products,0);
+  const nextDay = new Date(now.getTime() + 86400000);
+  assert.throws(() => checkCompleteDatabase(store.db,coverage,nextDay), /incomplete or failed/);
+  assert.equal(checkCompleteDatabase(store.db,coverage,nextDay,now.toISOString().slice(0,10))
+    .inconsistent_products,0);
   const coveragePath = join(directory,'coverage.json');
   writeFileSync(coveragePath,JSON.stringify(coverage));
   assert.match(execFileSync(process.execPath,[

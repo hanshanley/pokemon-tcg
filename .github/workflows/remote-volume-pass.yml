@@ -6,6 +6,9 @@ on:
       max_products:
         required: true
         type: string
+      collection_date:
+        required: true
+        type: string
       retry_failed:
         type: boolean
         default: false
@@ -27,6 +30,7 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       MAX_PRODUCTS: ${{ inputs.max_products }}
       RETRY_FAILED: ${{ inputs.retry_failed }}
+      COLLECTION_DATE: ${{ inputs.collection_date }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020

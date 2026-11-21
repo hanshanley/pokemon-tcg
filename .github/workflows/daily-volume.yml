@@ -28,6 +28,7 @@ jobs:
     outputs:
       needed: ${{ steps.plan.outputs.needed }}
       mode: ${{ steps.plan.outputs.mode }}
+      date: ${{ steps.plan.outputs.date }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -52,7 +53,9 @@ jobs:
           esac
           git fetch --depth=1 origin main
           git show FETCH_HEAD:reports/latest/coverage.json > "$RUNNER_TEMP/coverage.json"
-          needed=$(node src/publish.js --needs-collection "$RUNNER_TEMP/coverage.json")
+          collection_date=$(date -u +%F)
+          echo "date=$collection_date" >> "$GITHUB_OUTPUT"
+          needed=$(COLLECTION_DATE="$collection_date" node src/publish.js --needs-collection "$RUNNER_TEMP/coverage.json")
           echo "needed=$needed" >> "$GITHUB_OUTPUT"
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
   first:
@@ -61,6 +64,7 @@ jobs:
     uses: ./.github/workflows/remote-volume-pass.yml
     with:
       max_products: ${{ format('{0}', inputs.max_products || 25000) }}
+      collection_date: ${{ needs.plan.outputs.date }}
       retry_failed: ${{ inputs.retry_failed || false }}
       authorized_export: ${{ needs.plan.outputs.mode == 'export' }}
     secrets:
@@ -71,11 +75,13 @@ jobs:
     uses: ./.github/workflows/remote-volume-pass.yml
     with:
       max_products: ${{ format('{0}', inputs.max_products || 25000) }}
+      collection_date: ${{ needs.plan.outputs.date }}
   third:
-    needs: second
+    needs: [plan, second]
     uses: ./.github/workflows/remote-volume-pass.yml
     with:
       max_products: ${{ format('{0}', inputs.max_products || 25000) }}
+      collection_date: ${{ needs.plan.outputs.date }}
   verify:
     needs: [plan, first, third]
     if: ${{ always() && !cancelled() && needs.plan.result == 'success' }}
@@ -83,12 +89,13 @@ jobs:
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
+      COLLECTION_DATE: ${{ needs.plan.outputs.date }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - name: Require today's entire catalog, not just a successful publication
+      - name: Require the planned date's entire catalog, not just a successful publication
         run: |
           git fetch --depth=1 origin main
           git show FETCH_HEAD:reports/latest/coverage.json > "$RUNNER_TEMP/coverage.json"

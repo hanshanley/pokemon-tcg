@@ -51,8 +51,9 @@ export async function collectRemote(store, {
   limit = 25000, signal, refreshCatalog = syncCatalog, createTransport = historyBrowser,
   pause = delay => sleep(delay, undefined, { signal }), log = console.log, now = () => new Date(),
   requestPause = () => sleep(500),
+  queueDate,
 } = {}) {
-  const queueDate = now().toISOString().slice(0,10);
+  queueDate ??= now().toISOString().slice(0,10);
   let failures = 0, remaining = limit, denialRechecks = 0;
   const completed = () => store.db.prepare(`SELECT count(*) AS n FROM volume_jobs
     WHERE status IN ('success','empty')`).get().n;
@@ -129,9 +130,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       }
       store = new Store(resolve(process.env.DATA_DIR ?? 'data', 'sales.sqlite'));
       if (args[4]) console.log(`Requeued ${retryFailedJobs(store,
-        new Date().toISOString().slice(0,10))} failed products for a bounded fresh validation.`);
+        process.env.COLLECTION_DATE ?? new Date().toISOString().slice(0,10))} failed products for a bounded fresh validation.`);
       timer = setTimeout(() => signal.abort(), minutes * 60000);
-      console.log(JSON.stringify(await collectRemote(store, { limit, signal: signal.signal }), null, 2));
+      console.log(JSON.stringify(await collectRemote(store, {
+        limit, signal: signal.signal, queueDate: process.env.COLLECTION_DATE,
+      }), null, 2));
     }
   } catch (error) {
     if (!signal.signal.aborted) { console.error(error.message); process.exitCode = 1; }

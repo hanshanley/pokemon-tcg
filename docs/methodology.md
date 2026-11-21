@@ -146,6 +146,11 @@ as **Hans Hanley**, without Copilot trailers. Publishing uses an isolated checko
 does not stage or change the development worktree. `main` is the only branch;
 if code advances during publication, the report commit is rebased onto it
 before retrying the push.
+All passes share the UTC queue date selected by the planning job through
+`COLLECTION_DATE`, including passes that start after midnight. Final verification
+checks that planned date while measuring observation/publication freshness
+against the actual current time. The separate daily health check still requires
+the current UTC day's sweep.
 
 Remote passes wait at least 500 ms between history requests. If HTTP 403
 interrupts an otherwise productive session, collection stops making requests
