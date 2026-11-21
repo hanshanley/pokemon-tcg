@@ -4,7 +4,7 @@
   "alt": "Pokemon sales value from 2026-10-06 to 2026-11-19. A line joins range midpoints with a shaded low-high band, not confidence intervals. Missing or unverified dates break the line and band. 45 dates shown. 5 retained dates excluded because coverage was unverified or preliminary. Latest collection sweep: 63,965 / 63,965 products checked; 0 failed. 0 dates omitted for incomplete prices.",
   "source_sha256": {
     "daily-trading.csv": "b708f2e60c45fefdae4a99e2c6aaa79a202804ca0ae2c5b532c4fae4a872c251",
-    "coverage.json": "f66e978aaf9aec6090991eb1b8c40be4409984924ae7cbaa9209b2b6ceca54fb"
+    "coverage.json": "e46ea17bf539ce21c7f1f5ceb5a115c6c73adf56dcdcdea7c4c75db0e6f2484a"
   },
   "files_sha256": {
     "sales-value.svg": "400da2c02aef1436f61e5a075304c1ac57765b3792ce69472231e2a7e449f7e5",
@@ -20,7 +20,7 @@
   "latest_sweep": {
     "date_utc": "2026-11-20",
     "status": "complete",
-    "updated_at": "2026-11-20T23:38:46.991Z",
+    "updated_at": "2026-11-21T00:03:17.842Z",
     "products_expected": 63965,
     "products_checked": 63965,
     "products_with_history": 49314,
