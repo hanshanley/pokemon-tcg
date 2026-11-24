@@ -1,21 +1,21 @@
 {
   "source": "tcgplayer-public-individual-sales",
-  "generated_at": "2026-11-23T13:37:36.243Z",
-  "records": 238,
-  "units": 266,
-  "item_sales_cents": 5072478,
+  "generated_at": "2026-11-24T02:33:30.066Z",
+  "records": 248,
+  "units": 277,
+  "item_sales_cents": 5399608,
   "first_sale_utc": "2026-10-13T08:48:19.327Z",
-  "last_sale_utc": "2026-11-23T11:53:25.440Z",
-  "observed_at": "2026-11-23T13:37:34.900Z",
-  "item_sales_usd": 50724.78,
-  "last_successful_check_at": "2026-11-23T13:37:34.900Z",
+  "last_sale_utc": "2026-11-24T01:11:31.570Z",
+  "observed_at": "2026-11-24T02:33:28.513Z",
+  "item_sales_usd": 53996.08,
+  "last_successful_check_at": "2026-11-24T02:33:28.513Z",
   "scope": "Bounded public captures of the checkpoint products, not the whole Pokemon catalog.",
   "products": [
     {
       "product_id": 42382,
       "name": "Charizard",
       "status": "partial",
-      "last_collected": "2026-11-23T13:36:12.430Z",
+      "last_collected": "2026-11-24T02:32:53.247Z",
       "rows_seen": 5,
       "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity.",
       "possible_gap_collections": 1
@@ -24,7 +24,7 @@
       "product_id": 565879,
       "name": "Pikachu",
       "status": "partial",
-      "last_collected": "2026-11-23T13:36:39.521Z",
+      "last_collected": "2026-11-24T02:33:20.621Z",
       "rows_seen": 5,
       "warning": "The site requires sign-in for additional history. Scope: website default filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity.",
       "possible_gap_collections": 0
@@ -33,7 +33,7 @@
       "product_id": 565606,
       "name": "Surging Sparks Booster Box",
       "status": "partial",
-      "last_collected": "2026-11-23T13:37:07.201Z",
+      "last_collected": "2026-11-24T02:33:24.484Z",
       "rows_seen": 5,
       "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity.",
       "possible_gap_collections": 0
@@ -42,7 +42,7 @@
       "product_id": 246708,
       "name": "Trevenant VMAX",
       "status": "partial",
-      "last_collected": "2026-11-23T13:37:34.900Z",
+      "last_collected": "2026-11-24T02:33:28.513Z",
       "rows_seen": 5,
       "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity.",
       "possible_gap_collections": 1
