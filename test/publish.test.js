@@ -10,7 +10,34 @@ import { Store } from '../src/store.js';
 import { saveMonthHistory, syncVolume } from '../src/volume.js';
 import { fetchHistoryExport } from '../src/import-history.js';
 import { exportSnapshot, checkFreshness, checkCompleteSweep, checkCompleteDatabase,
-  needsDailyCollection, publishGitHub, updateReadmeLeaderboard, verifiedReportingDates } from '../src/publish.js';
+  needsDailyCollection, publishGitHub, uploadReleaseAssets, updateReadmeLeaderboard, verifiedReportingDates } from '../src/publish.js';
+
+test('release uploads retry transient failures per asset without replaying successful uploads', async () => {
+  const calls = [], waits = [];
+  let failures = 0;
+  await uploadReleaseAssets(['first.csv', 'second.csv'], {
+    run: args => {
+      const path = args.at(-1);
+      calls.push(path);
+      if (path === 'second.csv' && failures++ < 2) {
+        throw Object.assign(new Error('gh failed'), { stderr: Buffer.from('HTTP 500 (upload)') });
+      }
+    }, pause: async delay => waits.push(delay),
+  });
+  assert.deepEqual(calls, ['first.csv', 'second.csv', 'second.csv', 'second.csv']);
+  assert.deepEqual(waits, [5000, 15000]);
+});
+
+test('release uploads stop on permanent errors or exhausted transient retries', async () => {
+  for (const [status, expected] of [ [403, 1], [500, 3] ]) {
+    let calls = 0;
+    await assert.rejects(uploadReleaseAssets(['first.csv', 'never.csv'], {
+      run: () => { calls++; throw Object.assign(new Error('gh failed'), { stderr: `HTTP ${status}` }); },
+      pause: async () => {},
+    }), /gh failed/);
+    assert.equal(calls, expected);
+  }
+});
 
 const readmeWithLeaderboard = `# Existing heading
 
@@ -314,7 +341,9 @@ const {appendFileSync,readFileSync,writeFileSync} = require('node:fs');
 const {execFileSync} = require('node:child_process');
 const {gunzipSync} = require('node:zlib');
 if (process.argv[2] === 'release' && process.argv[3] === 'upload') {
-  writeFileSync(process.env.TEST_PUBLICATION_ASSETS, JSON.stringify(process.argv.slice(4)));
+  let uploaded = [];
+  try { uploaded = JSON.parse(readFileSync(process.env.TEST_PUBLICATION_ASSETS)); } catch {}
+  writeFileSync(process.env.TEST_PUBLICATION_ASSETS, JSON.stringify([...uploaded, ...process.argv.slice(4)]));
   const checkpoint = process.argv.find(arg => arg.endsWith('/remote-state.sqlite.gz'));
   if (checkpoint) writeFileSync(process.env.TEST_PUBLICATION_CHECKPOINT, gunzipSync(readFileSync(checkpoint)));
 }

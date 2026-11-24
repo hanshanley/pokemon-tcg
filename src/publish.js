@@ -11,6 +11,7 @@ import { Store, csv, volumeSource } from './store.js';
 import { writeVolumeFigure } from './figures.js';
 import { writeSalesFigure } from './sales-figure.js';
 import { sourceBuild } from './catalog.js';
+import { setTimeout as sleep } from 'node:timers/promises';
 
 const repo = 'hanshanley/pokemon-tcg';
 const branch = 'main';
@@ -309,6 +310,27 @@ export async function exportSnapshot(store, directory, now = new Date(), { readm
   } catch (error) { store.db.exec('ROLLBACK'); throw error; }
 }
 
+export async function uploadReleaseAssets(paths, {
+  run = args => execFileSync('gh', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }),
+  pause = sleep,
+} = {}) {
+  for (const path of paths) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        run(['release', 'upload', tag, '--repo', repo, '--clobber', path]);
+        break;
+      } catch (error) {
+        const detail = `${error.message}\n${error.stderr ?? ''}`;
+        if (attempt >= 2 || !/HTTP (?:429|5\d\d)\b|ECONNRESET|ETIMEDOUT|connection (?:reset|abort)|TLS handshake timeout|unexpected EOF/i.test(detail)) {
+          throw error;
+        }
+        console.error(`Transient GitHub upload failure for ${path.split('/').at(-1)}; retry ${attempt + 1}/2.`);
+        await pause(attempt === 0 ? 5000 : 15000);
+      }
+    }
+  }
+}
+
 export async function publishGitHub(dataDirectory, { fromExport = false } = {}) {
   const lockPath = join(dataDirectory, 'github-publish.lock');
   try {
@@ -352,7 +374,7 @@ export async function publishGitHub(dataDirectory, { fromExport = false } = {}) 
     try { command('gh', ['release', 'view', tag, '--repo', repo]); }
     catch { command('gh', ['release', 'create', tag, '--repo', repo, '--target', 'main',
       '--title', 'Daily Pokemon sales-volume downloads', '--notes', notes]); }
-    command('gh', ['release', 'upload', tag, '--repo', repo, '--clobber', ...assets]);
+    await uploadReleaseAssets(assets);
     command('gh', ['release', 'edit', tag, '--repo', repo, '--notes', notes]);
     command('git', ['add', '--', 'README.md', ...reportFiles.map(name => `reports/latest/${name}`)], checkout);
     command('git', ['commit',
@@ -377,7 +399,9 @@ export async function publishGitHub(dataDirectory, { fromExport = false } = {}) 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const args = process.argv.slice(2);
-    if (args[0] === '--needs-collection' && args.length <= 2) {
+    if (args[0] === '--upload-assets' && args.length > 1) {
+      await uploadReleaseAssets(args.slice(1));
+    } else if (args[0] === '--needs-collection' && args.length <= 2) {
       console.log(await needsDailyCollection(
         JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8')),
         { date: process.env.COLLECTION_DATE }));

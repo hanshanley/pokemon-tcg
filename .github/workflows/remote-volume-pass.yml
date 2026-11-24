@@ -72,7 +72,7 @@ jobs:
         run: |
           node src/remote.js --checkpoint data/sales.sqlite data/public-state.sqlite
           gzip -c data/public-state.sqlite > data/remote-state.sqlite.gz
-          gh release upload daily-volume data/remote-state.sqlite.gz --clobber
+          node src/publish.js --upload-assets data/remote-state.sqlite.gz
       - name: Publish complete downloads and honest sweep coverage
         if: ${{ always() && !cancelled() && steps.checkpoint.outcome == 'success' }}
         run: npm run publish

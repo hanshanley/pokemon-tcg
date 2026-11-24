@@ -13,6 +13,10 @@ on:
         description: Revalidate exhausted failed products once (does not change source validation)
         type: boolean
         default: false
+      republish:
+        description: Rebuild reports and downloads from the retained checkpoint after an interrupted publication
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -38,6 +42,7 @@ jobs:
         id: plan
         env:
           TCGPLAYER_HISTORY_ACCESS: ${{ vars.TCGPLAYER_HISTORY_ACCESS }}
+          REPUBLISH: ${{ inputs.republish || false }}
         run: |
           case "$TCGPLAYER_HISTORY_ACCESS" in
             ''|approved) mode=native ;;
@@ -56,6 +61,7 @@ jobs:
           collection_date=$(date -u +%F)
           echo "date=$collection_date" >> "$GITHUB_OUTPUT"
           needed=$(COLLECTION_DATE="$collection_date" node src/publish.js --needs-collection "$RUNNER_TEMP/coverage.json")
+          if [[ "$REPUBLISH" == "true" ]]; then needed=true; fi
           echo "needed=$needed" >> "$GITHUB_OUTPUT"
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
   first:
