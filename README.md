@@ -66,16 +66,16 @@ The two datasets are never added together.
 
 | Rank | Pokemon | Units sold | Reported transactions |
 | ---: | --- | ---: | ---: |
-| 1 | Pikachu | 8,322 | 4,333 |
-| 2 | Eevee | 1,499 | 843 |
-| 3 | Meowth | 1,113 | 806 |
-| 4 | Gengar | 810 | 524 |
-| 5 | Mewtwo | 782 | 608 |
-| 6 | Slowpoke | 751 | 291 |
-| 7 | Mew | 740 | 585 |
-| 8 | Charizard | 735 | 576 |
-| 9 | Kangaskhan | 646 | 307 |
-| 10 | Articuno | 638 | 370 |
+| 1 | Pikachu | 8,262 | 4,290 |
+| 2 | Eevee | 1,481 | 835 |
+| 3 | Meowth | 1,106 | 801 |
+| 4 | Gengar | 786 | 511 |
+| 5 | Mewtwo | 778 | 604 |
+| 6 | Slowpoke | 742 | 288 |
+| 7 | Mew | 738 | 583 |
+| 8 | Charizard | 733 | 574 |
+| 9 | Kangaskhan | 637 | 300 |
+| 10 | Articuno | 635 | 367 |
 
 <!-- END POKEMON LEADERBOARD -->
 
