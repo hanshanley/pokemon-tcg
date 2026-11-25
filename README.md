@@ -62,20 +62,20 @@ The two datasets are never added together.
 
 <!-- BEGIN POKEMON LEADERBOARD -->
 
-**2026-11-24** (TCGplayer source date; verified catalog sweep) · ranked by reported units sold.
+**2026-11-23** (TCGplayer source date; verified catalog sweep) · ranked by reported units sold.
 
 | Rank | Pokemon | Units sold | Reported transactions |
 | ---: | --- | ---: | ---: |
-| 1 | Pikachu | 9,016 | 3,900 |
-| 2 | Eevee | 1,787 | 806 |
-| 3 | Lucario | 1,329 | 336 |
-| 4 | Charizard | 1,235 | 733 |
-| 5 | Mewtwo | 1,213 | 665 |
-| 6 | Mew | 1,203 | 522 |
-| 7 | Gengar | 1,178 | 606 |
-| 8 | Meowth | 942 | 665 |
-| 9 | Psyduck | 819 | 302 |
-| 10 | Greninja | 745 | 408 |
+| 1 | Pikachu | 8,029 | 3,980 |
+| 2 | Eevee | 1,445 | 742 |
+| 3 | Gengar | 1,250 | 533 |
+| 4 | Mewtwo | 1,030 | 636 |
+| 5 | Charizard | 897 | 632 |
+| 6 | Mew | 866 | 517 |
+| 7 | Meowth | 856 | 683 |
+| 8 | Snorlax | 737 | 341 |
+| 9 | Sylveon | 673 | 351 |
+| 10 | Greninja | 664 | 408 |
 
 <!-- END POKEMON LEADERBOARD -->
 
