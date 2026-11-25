@@ -4,12 +4,12 @@
   "source": "https://www.jsonify.com/datasets/ebay-us-pok-mon-sold-listings-9c1de2dcf5cc",
   "license": "CC BY 4.0",
   "license_url": "https://creativecommons.org/licenses/by/4.0/",
-  "revisions": 8,
-  "sample_rows": 400,
-  "distinct_listings": 197,
-  "last_capture_at": "2026-11-24T09:00:36.835Z",
+  "revisions": 9,
+  "sample_rows": 450,
+  "distinct_listings": 209,
+  "last_capture_at": "2026-11-25T09:01:00.785Z",
   "first_sold_date": "2026-10-24",
-  "last_sold_date": "2026-11-21",
+  "last_sold_date": "2026-11-24",
   "coverage": "Rotating public sample; not the complete provider dataset, all eBay sales, or TCGplayer sales. Distinct listing ID and sale date pairs, not units or unique transactions.",
   "changes": "Retained factual listing fields only; images and listing titles omitted. Repeated listing/date pairs count once in summaries. Displayed prices may not be the paid amount; no dollar totals."
 }
