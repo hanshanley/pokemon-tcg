@@ -38,6 +38,7 @@ test('scheduled collection caps batches and publication-only dispatch never invo
     const pass = readFileSync(new URL('../.github/workflows/remote-volume-pass.yml', import.meta.url), 'utf8');
     const collection = pass.match(/- name: Collect native daily history without a Mac[\s\S]*?(?=      - name:)/)[0];
     assert.match(collection, /!inputs\.publish_only/);
+    assert.match(pass, /- run: npx playwright install --with-deps chromium\n      - name:/);
     assert.match(workflow, /publish_only: \$\{\{ inputs\.republish \|\| false \}\}/);
     assert.match(workflow, /needs\.plan\.outputs\.mode == 'native' && !inputs\.republish/);
     for (const limit of [0, 2001, 25000]) {

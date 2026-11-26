@@ -41,7 +41,6 @@ jobs:
           node-version: '22'
       - run: npm ci
       - run: npx playwright install --with-deps chromium
-        if: ${{ !inputs.publish_only }}
       - name: Configure repository-scoped publishing credentials
         run: git config --global credential.https://github.com.helper '!gh auth git-credential'
       - name: Restore retained public history and resumable queue
