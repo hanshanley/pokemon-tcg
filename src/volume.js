@@ -220,7 +220,11 @@ export async function syncVolume(store, {
     const unfinished = store.db.prepare(`SELECT count(*) AS n FROM volume_jobs j
       JOIN catalog_products c ON c.product_id=j.product_id
       WHERE j.date_utc=? AND c.is_current=1 AND j.status IN ('pending','failed') AND j.attempts<3`).get(date).n;
-    return progress(unfinished ? 'paused' : state.products_failed ? 'partial' : 'complete');
+    const result = progress(unfinished ? 'paused' : state.products_failed ? 'partial' : 'complete');
+    if (result.status === 'complete') store.db.prepare(`INSERT INTO volume_run_products
+      SELECT ?,json_group_array(product_id) FROM catalog_products WHERE is_current=1
+      ON CONFLICT(date_utc) DO UPDATE SET product_ids=excluded.product_ids`).run(date);
+    return result;
   } catch (error) {
     progress(error.code === 'HISTORY_TRANSPORT' ? 'paused' : 'failed', error.message);
     throw error;

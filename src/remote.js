@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { Store } from './store.js';
+import { Store, retainVolumeRunScopes } from './store.js';
 import { syncCatalog } from './catalog.js';
 import { historyBrowser, syncVolume } from './volume.js';
 
@@ -37,10 +37,11 @@ export function publicCheckpoint(source, destination) {
       INSERT INTO volume_jobs SELECT date_utc,product_id,status,attempts,fetched_at,buckets,''
         FROM original.volume_jobs;
     `);
-    for (const table of ['daily_sale_prices', 'price_checks', 'volume_export_days']) {
+    for (const table of ['daily_sale_prices', 'price_checks', 'volume_export_days', 'volume_run_products']) {
       if (target.db.prepare('SELECT 1 FROM original.sqlite_master WHERE type=? AND name=?')
         .get('table',table)) target.db.exec(`INSERT INTO ${table} SELECT * FROM original.${table}`);
     }
+    retainVolumeRunScopes(target.db);
     target.refreshSaleValues();
     target.db.exec('COMMIT; DETACH DATABASE original; PRAGMA wal_checkpoint(TRUNCATE)');
     return target.db.prepare('SELECT count(*) AS sku_buckets FROM daily_volume').get();
@@ -48,11 +49,14 @@ export function publicCheckpoint(source, destination) {
 }
 
 export async function collectRemote(store, {
-  limit = 25000, signal, refreshCatalog = syncCatalog, createTransport = historyBrowser,
+  limit = 2000, signal, refreshCatalog = syncCatalog, createTransport = historyBrowser,
   pause = delay => sleep(delay, undefined, { signal }), log = console.log, now = () => new Date(),
   requestPause = () => sleep(500),
   queueDate,
 } = {}) {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 2000) {
+    throw new Error('Each remote collection pass must request between 1 and 2000 products.');
+  }
   queueDate ??= now().toISOString().slice(0,10);
   let failures = 0, remaining = limit, denialRechecks = 0;
   const completed = () => store.db.prepare(`SELECT count(*) AS n FROM volume_jobs
@@ -124,9 +128,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         throw new Error('Usage: node src/remote.js --limit PRODUCTS --minutes MINUTES [--retry-failed] | --checkpoint SOURCE DESTINATION');
       }
       const limit = Number(args[1]), minutes = Number(args[3]);
-      if (!Number.isSafeInteger(limit) || limit < 1 ||
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 2000 ||
           !Number.isSafeInteger(minutes) || minutes < 1 || minutes > 240) {
-        throw new Error('Provide a positive product limit and 1-240 minutes.');
+        throw new Error('Provide a product limit of 1-2000 and 1-240 minutes.');
       }
       store = new Store(resolve(process.env.DATA_DIR ?? 'data', 'sales.sqlite'));
       if (args[4]) console.log(`Requeued ${retryFailedJobs(store,

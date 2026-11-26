@@ -6,11 +6,64 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
-import { Store } from '../src/store.js';
+import { Store, retainVolumeRunScopes } from '../src/store.js';
 import { saveMonthHistory, syncVolume } from '../src/volume.js';
 import { fetchHistoryExport } from '../src/import-history.js';
 import { exportSnapshot, checkFreshness, checkCompleteSweep, checkCompleteDatabase,
-  needsDailyCollection, publishGitHub, uploadReleaseAssets, updateReadmeLeaderboard, verifiedReportingDates } from '../src/publish.js';
+  needsDailyCollection, publishGitHub, uploadReleaseAssets, updateReadmeLeaderboard, verifiedReportingDates,
+  checkReportDatabase, plannedCollectionDate } from '../src/publish.js';
+
+test('bounded runs finish an overnight queue before opening a new daily sweep', () => {
+  const now = new Date('2026-11-26T00:15:00Z');
+  for (const status of ['paused', 'running', 'partial', 'failed']) {
+    assert.equal(plannedCollectionDate({ sweep: { date_utc: '2026-11-25', status } }, now), '2026-11-25');
+    assert.equal(plannedCollectionDate({ sweep: { date_utc: '2026-11-26', status } }, now), '2026-11-26');
+  }
+  for (const sweep of [undefined, { date_utc: '2026-11-25', status: 'complete' },
+    { date_utc: '2026-11-24', status: 'paused' }, { date_utc: '2026-11-27', status: 'paused' }]) {
+    assert.equal(plannedCollectionDate({ sweep }, now), '2026-11-26');
+  }
+});
+
+test('retired queue jobs do not revoke reporting dates certified against the completed catalog', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  for (let id = 1; id <= 2; id++) store.db.prepare(`INSERT INTO catalog_products VALUES
+    (?,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run(id);
+  const now = new Date('2026-11-25T12:00:00Z');
+  const options = { now: () => now, pause: async () => {}, log: () => {},
+    fetchHistory: async id => ({ status: 200, body: id !== 1 ? { count: 0 } : {
+      count: 1, result: [{ skuId: 101, condition: 'Near Mint', variant: 'Normal', language: 'English',
+        buckets: Array.from({ length: 30 }, (_, index) => ({
+          bucketStartDate: new Date(now - index * 86400000).toISOString().slice(0,10),
+          quantitySold: 1, transactionCount: 1,
+        })),
+      }],
+    } }),
+  };
+  await syncVolume(store, { ...options, limit: 1 });
+  store.db.exec(`UPDATE catalog_products SET is_current=0 WHERE product_id=2;
+    INSERT INTO catalog_products VALUES
+    (3,3,604,'Set','Charizard','','','','','["Charizard"]','','build-2',1)`);
+  await syncVolume(store, options);
+  assert.equal(store.db.prepare('SELECT products_expected FROM volume_runs').get().products_expected, 2);
+  assert.equal(store.db.prepare('SELECT count(*) n FROM volume_jobs').get().n, 3);
+  assert.ok(verifiedReportingDates(store.db, '2026-11-25').includes('2026-11-24'));
+  store.db.exec('DELETE FROM volume_run_products');
+  assert.ok(verifiedReportingDates(store.db, '2026-11-25').includes('2026-11-24'));
+  retainVolumeRunScopes(store.db);
+  assert.deepEqual(JSON.parse(store.db.prepare('SELECT product_ids FROM volume_run_products').get().product_ids), [1,3]);
+  store.db.exec(`UPDATE catalog_products SET is_current=0 WHERE product_id=3;
+    INSERT INTO catalog_products VALUES
+    (4,3,604,'Set','Charizard','','','','','["Charizard"]','','build-3',1)`);
+  assert.ok(verifiedReportingDates(store.db, '2026-11-26').includes('2026-11-24'));
+  store.db.prepare('UPDATE daily_volume SET last_seen=? WHERE date_source=?')
+    .run('2026-11-20T00:00:00.000Z','2026-11-24');
+  assert.ok(!verifiedReportingDates(store.db, '2026-11-26').includes('2026-11-24'));
+  assert.ok(verifiedReportingDates(store.db, '2026-11-26').includes('2026-11-23'));
+  store.db.prepare('UPDATE volume_run_products SET product_ids=?').run('[1,1]');
+  assert.ok(!verifiedReportingDates(store.db, '2026-11-26').includes('2026-11-23'));
+});
 
 test('release uploads retry transient failures per asset without replaying successful uploads', async () => {
   const calls = [], waits = [];
@@ -186,6 +239,8 @@ test('complete checkpoint verification checks every product and its saved rows, 
   assert.equal(valid.products_checked,3);
   assert.equal(valid.products_without_history,1);
   assert.equal(valid.inconsistent_products,0);
+  assert.throws(() => checkCompleteDatabase(store.db, { ...coverage, reporting_dates: [] }, now),
+    /lacks verified reporting coverage/);
   const nextDay = new Date(now.getTime() + 86400000);
   assert.throws(() => checkCompleteDatabase(store.db,coverage,nextDay), /incomplete or failed/);
   assert.equal(checkCompleteDatabase(store.db,coverage,nextDay,now.toISOString().slice(0,10))
@@ -289,6 +344,35 @@ test('published reports and complete compressed downloads retain corrected count
   assert.equal(lastDay.priced_sales_lower_usd, '30');
   assert.equal(lastDay.priced_sales_upper_usd, '36');
   assert.equal(lastDay.sales_usd, '');
+});
+
+test('a bounded partial batch publishes reconciled reports without claiming a complete sweep', async t => {
+  const directory = mkdtempSync(join(tmpdir(), 'pokemon-partial-report-'));
+  const store = new Store(':memory:');
+  t.after(() => { store.close(); rmSync(directory, { recursive: true }); });
+  for (let id = 1; id <= 2; id++) store.db.prepare(`INSERT INTO catalog_products VALUES
+    (?,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run(id);
+  const now = new Date('2026-11-26T12:00:00Z');
+  await syncVolume(store, { limit: 1, now: () => now, pause: async () => {}, log: () => {},
+    fetchHistory: async () => ({ status: 200, body: { count: 1, result: [{ skuId: 101,
+      condition: 'Near Mint', variant: 'Normal', language: 'English',
+      buckets: Array.from({ length: 30 }, (_, index) => ({
+        bucketStartDate: new Date(now - index * 86400000).toISOString().slice(0,10),
+        quantitySold: 1, transactionCount: 1,
+      })),
+    }] } }),
+  });
+  const coverage = await exportSnapshot(store, directory, now);
+  assert.deepEqual(checkReportDatabase(store.db, coverage, now), {
+    status: 'paused', products_checked: 1, products_expected: 2, reporting_dates: [],
+  });
+  assert.throws(() => checkCompleteSweep(coverage, now), /incomplete or failed/);
+  assert.throws(() => checkReportDatabase(store.db, { ...coverage, units: 999 }, now), /units does not match/);
+  assert.throws(() => checkReportDatabase(store.db, { ...coverage, reporting_dates: ['2026-11-25'] }, now),
+    /reporting dates do not match/);
+  assert.throws(() => checkReportDatabase(store.db, {
+    ...coverage, sweep: { ...coverage.sweep, status: 'complete' },
+  }, now), /does not match the saved catalog sweep/);
 });
 
 test('publishing rejects absent or stale observations rather than producing fresh-looking zero sales', async t => {

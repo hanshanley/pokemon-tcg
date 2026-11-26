@@ -15,6 +15,9 @@ on:
       authorized_export:
         type: boolean
         default: false
+      publish_only:
+        type: boolean
+        default: false
     secrets:
       history_export_url:
         required: false
@@ -38,6 +41,7 @@ jobs:
           node-version: '22'
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+        if: ${{ !inputs.publish_only }}
       - name: Configure repository-scoped publishing credentials
         run: git config --global credential.https://github.com.helper '!gh auth git-credential'
       - name: Restore retained public history and resumable queue
@@ -48,13 +52,13 @@ jobs:
           gzip -dc data/remote-state.sqlite.gz > data/sales.sqlite
           node --input-type=module -e "import {Store} from './src/store.js'; const s=new Store('data/sales.sqlite'); const result=s.db.prepare('PRAGMA quick_check').get(); s.close(); if(Object.values(result)[0]!=='ok') throw new Error('Invalid remote checkpoint'); console.log(result);"
       - name: Collect native daily history without a Mac
-        if: ${{ !inputs.authorized_export }}
+        if: ${{ !inputs.authorized_export && !inputs.publish_only }}
         run: |
           args=()
           if [[ "$RETRY_FAILED" == "true" ]]; then args+=(--retry-failed); fi
-          xvfb-run -a node src/remote.js --limit "$MAX_PRODUCTS" --minutes 240 "${args[@]}"
+          xvfb-run -a node src/remote.js --limit "$MAX_PRODUCTS" --minutes 30 "${args[@]}"
       - name: Import the authorized daily export
-        if: ${{ inputs.authorized_export }}
+        if: ${{ inputs.authorized_export && !inputs.publish_only }}
         env:
           TCGPLAYER_HISTORY_EXPORT_URL: ${{ secrets.history_export_url }}
         run: |
@@ -68,7 +72,7 @@ jobs:
           fi
       - name: Persist a public-only checkpoint even after a collection failure
         id: checkpoint
-        if: ${{ always() && !cancelled() && !inputs.authorized_export && steps.restore.outcome == 'success' }}
+        if: ${{ always() && !cancelled() && (!inputs.authorized_export || inputs.publish_only) && steps.restore.outcome == 'success' }}
         run: |
           node src/remote.js --checkpoint data/sales.sqlite data/public-state.sqlite
           gzip -c data/public-state.sqlite > data/remote-state.sqlite.gz
@@ -77,5 +81,5 @@ jobs:
         if: ${{ always() && !cancelled() && steps.checkpoint.outcome == 'success' }}
         run: npm run publish
       - name: Verify and publish the authorized daily export
-        if: ${{ inputs.authorized_export }}
+        if: ${{ inputs.authorized_export && !inputs.publish_only }}
         run: npm run publish -- --from-export

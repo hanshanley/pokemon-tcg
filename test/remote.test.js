@@ -18,11 +18,31 @@ test('daily workflow defaults to native collection while retaining explicit paus
     encoding: 'utf8', env: { ...process.env, TCGPLAYER_HISTORY_ACCESS: access },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
+
   assert.equal(mode(''), 'native');
   assert.equal(mode('approved'), 'native');
   assert.equal(mode('approved-export'), 'export');
   assert.throws(() => mode('paused'), error => error.status === 1 && /explicitly paused/.test(error.stdout));
   assert.throws(() => mode('invalid'), error => error.status === 1 && /Unknown/.test(error.stdout));
+});
+
+test('scheduled collection caps batches and publication-only dispatch never invokes collection', async () => {
+    const workflow = readFileSync(new URL('../.github/workflows/daily-volume.yml', import.meta.url), 'utf8');
+    const guard = workflow.match(/          if \[\[ ! "\$MAX_PRODUCTS"[\s\S]*?          fi/)[0];
+    const validate = limit => execFileSync('bash', ['-e', '-c', guard], {
+      env: { ...process.env, MAX_PRODUCTS: String(limit) }, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    validate(1);
+    validate(2000);
+    for (const limit of [0, 2001, 25000, 'bad']) assert.throws(() => validate(limit));
+    const pass = readFileSync(new URL('../.github/workflows/remote-volume-pass.yml', import.meta.url), 'utf8');
+    const collection = pass.match(/- name: Collect native daily history without a Mac[\s\S]*?(?=      - name:)/)[0];
+    assert.match(collection, /!inputs\.publish_only/);
+    assert.match(workflow, /publish_only: \$\{\{ inputs\.republish \|\| false \}\}/);
+    assert.match(workflow, /needs\.plan\.outputs\.mode == 'native' && !inputs\.republish/);
+    for (const limit of [0, 2001, 25000]) {
+      await assert.rejects(collectRemote(null, {limit}), /between 1 and 2000/);
+    }
 });
 
 test('historical backfills survive newer rolling windows, public checkpoints and complete downloads', async t => {
@@ -89,15 +109,21 @@ test('remote checkpoints preserve all public buckets and queue state but exclude
     VALUES ('2026-11-01','now','now','running','local diagnostic');
     INSERT INTO volume_jobs(date_utc,product_id,status,attempts,warning)
     VALUES ('2026-11-01',1,'success',1,'local diagnostic')`);
+  store.db.prepare('INSERT INTO volume_run_products VALUES (?,?)').run('2026-11-01','[1]');
   try {
     assert.equal(publicCheckpoint(source, destination).sku_buckets, 30);
     assert.throws(() => publicCheckpoint(source, source), /must not overwrite/);
     assert.throws(() => publicCheckpoint(source, destination), /must be a new file/);
-    store.db.exec('DROP TABLE daily_sale_prices; DROP TABLE price_checks; DROP TABLE price_product_days');
+    store.db.exec(`UPDATE volume_runs SET status='complete',products_expected=1,products_checked=1,
+      products_with_history=1; DROP TABLE daily_sale_prices; DROP TABLE price_checks;
+      DROP TABLE price_product_days; DROP TABLE volume_run_products`);
     const legacyPath = join(directory,'legacy-public.sqlite');
     assert.equal(publicCheckpoint(source,legacyPath).sku_buckets,30);
     const legacy = new Store(legacyPath);
-    try { assert.equal(legacy.saleValueRows()[0].unpriced_units,3); }
+    try {
+      assert.equal(legacy.saleValueRows()[0].unpriced_units,3);
+      assert.deepEqual(JSON.parse(legacy.db.prepare('SELECT product_ids FROM volume_run_products').get().product_ids),[1]);
+    }
     finally { legacy.close(); }
   }
   finally { store.close(); }
@@ -111,6 +137,7 @@ test('remote checkpoints preserve all public buckets and queue state but exclude
     assert.equal(remote.db.prepare('SELECT warning FROM volume_jobs').get().warning, '');
     assert.equal(remote.db.prepare('SELECT warning FROM volume_runs').get().warning, '');
     assert.equal(remote.db.prepare('SELECT status FROM volume_jobs').get().status, 'success');
+    assert.deepEqual(JSON.parse(remote.db.prepare('SELECT product_ids FROM volume_run_products').get().product_ids),[1]);
     assert.equal([...remote.volumeRows()].length, 30);
     assert.equal(remote.saleValueRows()[0].sales_lower_usd,6);
     assert.equal(remote.saleValueRows()[0].sales_upper_usd,9);

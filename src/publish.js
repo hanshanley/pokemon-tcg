@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createGzip } from 'node:zlib';
 import { DatabaseSync } from 'node:sqlite';
-import { Store, csv, volumeSource } from './store.js';
+import { Store, csv, volumeSource, volumeRunScope } from './store.js';
 import { writeVolumeFigure } from './figures.js';
 import { writeSalesFigure } from './sales-figure.js';
 import { sourceBuild } from './catalog.js';
@@ -121,6 +121,10 @@ export function checkCompleteDatabase(db, coverage, now = new Date(), date = now
     if (Object.entries(totals).some(([key, value]) => value !== coverage[key])) {
       throw new Error('Published daily totals do not match the saved SKU buckets.');
     }
+    const closedDate = new Date(Date.parse(sweep.date_utc) - 86400000).toISOString().slice(0,10);
+    if (coverage.reporting_dates && !coverage.reporting_dates.includes(closedDate)) {
+      throw new Error(`Completed sweep lacks verified reporting coverage for ${closedDate}.`);
+    }
     return { ...counts, ...totals, catalog_source_build: build, inconsistent_products: inconsistent };
   } finally { db.exec('RELEASE verify_complete_database'); }
 }
@@ -134,6 +138,14 @@ export async function needsDailyCollection(coverage, {
   if (!coverage.reporting_dates?.includes(closed)) return true;
   if (!coverage.catalog_source_build) return true;
   return coverage.catalog_source_build !== await sourceBuild(fetcher);
+}
+
+export function plannedCollectionDate(coverage, now = new Date()) {
+  const today = now.toISOString().slice(0,10), sweep = coverage.sweep;
+  const previous = new Date(Date.parse(today) - 86400000).toISOString().slice(0,10);
+  if (sweep && ['paused', 'running', 'partial', 'failed'].includes(sweep.status) &&
+      [today, previous].includes(sweep.date_utc)) return sweep.date_utc;
+  return today;
 }
 
 function* csvChunks(rows, fields) {
@@ -165,7 +177,7 @@ export function verifiedReportingDates(db, latestDate) {
         AND julianday(fetched_at) BETWEEN julianday(?) AND julianday(?)) AS histories,
       count(*) FILTER (WHERE status='empty' AND buckets=0
         AND julianday(fetched_at) BETWEEN julianday(?) AND julianday(?)) AS empty
-    FROM volume_jobs WHERE date_utc=?`);
+    FROM volume_jobs WHERE date_utc=? AND product_id IN (SELECT value FROM json_each(?))`);
   const dates = db.prepare(`SELECT DISTINCT date_source FROM daily_volume WHERE date_source<?`)
     .all(latestDate).map(row => row.date_source);
   const verified = new Set(closed.map(row => row.source_date));
@@ -174,7 +186,9 @@ export function verifiedReportingDates(db, latestDate) {
     if (closedQueues.has(queue)) continue;
     const candidates = dates.filter(date => date >= start && date < queue && !verified.has(date));
     if (!candidates.length) continue;
-    const saved = counts.get(queue,finished,queue,finished,queue);
+    const scope = volumeRunScope(db, run);
+    if (!scope) continue;
+    const saved = counts.get(queue,finished,queue,finished,queue,scope);
     if (saved.jobs !== run.products_expected || saved.histories !== run.products_with_history ||
         saved.empty !== run.products_without_history) continue;
     // The later bucket establishes the date boundary; historical buckets must cover the response's SKU count.
@@ -182,9 +196,10 @@ export function verifiedReportingDates(db, latestDate) {
       SELECT v.date_source FROM daily_volume v NOT INDEXED CROSS JOIN volume_jobs j
         ON j.product_id=v.product_id AND v.last_seen>=j.fetched_at
       WHERE j.date_utc=? AND j.status='success'
+        AND j.product_id IN (SELECT value FROM json_each(?))
         AND v.date_source IN (${[...candidates,queue].map(() => '?').join(',')})
       GROUP BY j.product_id,v.date_source HAVING count(*)>=j.buckets/30 OR v.date_source=?
-    ) GROUP BY date_source`).all(queue,...candidates,queue,queue)
+    ) GROUP BY date_source`).all(queue,scope,...candidates,queue,queue)
       .filter(row => row.products === run.products_with_history).map(row => row.date_source);
     if (covered.includes(queue)) for (const date of covered) if (date !== queue) verified.add(date);
   }
@@ -241,6 +256,30 @@ function snapshotState(db, now) {
 
 export function checkStoredSweep(db, now = new Date()) {
   return checkCompleteDatabase(db, snapshotState(db, now), now);
+}
+
+export function checkReportDatabase(db, coverage, now = new Date()) {
+  checkFreshness(coverage, now);
+  db.exec('SAVEPOINT verify_report_database');
+  try {
+    if (Object.values(db.prepare('PRAGMA quick_check').get())[0] !== 'ok') {
+      throw new Error('Public checkpoint failed SQLite integrity checks.');
+    }
+    const snapshot = snapshotState(db, now);
+    for (const field of ['source', 'sku_buckets', 'units', 'transactions', 'first_source_date',
+      'last_source_date', 'catalog_products', 'catalog_source_build']) {
+      if (coverage[field] !== snapshot[field]) throw new Error(`Published ${field} does not match the saved checkpoint.`);
+    }
+    if (JSON.stringify(coverage.sweep) !== JSON.stringify(snapshot.sweep)) {
+      throw new Error('Published coverage does not match the saved catalog sweep.');
+    }
+    const dates = verifiedReportingDates(db, snapshot.last_source_date);
+    if (JSON.stringify(coverage.reporting_dates) !== JSON.stringify(dates)) {
+      throw new Error('Published reporting dates do not match verified saved history.');
+    }
+    return { status: snapshot.sweep?.status, products_checked: snapshot.sweep?.products_checked,
+      products_expected: snapshot.sweep?.products_expected, reporting_dates: dates };
+  } finally { db.exec('RELEASE verify_report_database'); }
 }
 
 export async function exportSnapshot(store, directory, now = new Date(), { readmePath } = {}) {
@@ -401,6 +440,8 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const args = process.argv.slice(2);
     if (args[0] === '--upload-assets' && args.length > 1) {
       await uploadReleaseAssets(args.slice(1));
+    } else if (args[0] === '--queue-date' && args.length === 2) {
+      console.log(plannedCollectionDate(JSON.parse(readFileSync(args[1], 'utf8'))));
     } else if (args[0] === '--needs-collection' && args.length <= 2) {
       console.log(await needsDailyCollection(
         JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8')),
@@ -409,14 +450,17 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const db = new DatabaseSync(resolve(args[1]), { readOnly: true });
       try { console.log(JSON.stringify(checkStoredSweep(db))); }
       finally { db.close(); }
-    } else if (['--check','--complete'].includes(args[0]) &&
-        args.length <= (args[0] === '--complete' ? 3 : 2)) {
+    } else if (['--check','--complete','--reports'].includes(args[0]) &&
+        (args[0] !== '--reports' || args.length === 3) &&
+        args.length <= (args[0] === '--check' ? 2 : 3)) {
       const coverage = JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8'));
       (args[0] === '--complete' ? checkCompleteSweep : checkFreshness)(
         coverage, new Date(), process.env.COLLECTION_DATE);
       if (args[2]) {
         const db = new DatabaseSync(resolve(args[2]), { readOnly: true });
-        try { console.log(JSON.stringify(checkCompleteDatabase(db, coverage, new Date(), process.env.COLLECTION_DATE))); }
+        try { console.log(JSON.stringify(args[0] === '--reports'
+          ? checkReportDatabase(db, coverage)
+          : checkCompleteDatabase(db, coverage, new Date(), process.env.COLLECTION_DATE))); }
         finally { db.close(); }
       }
       console.log('Daily GitHub data passed its checks; marketplace completeness remains unverified.');
@@ -424,6 +468,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const dir = resolve(process.env.DATA_DIR ?? 'data');
       if (!statSync(join(dir, 'sales.sqlite')).size) throw new Error('Sales database is empty.');
       await publishGitHub(dir, { fromExport: args[0] === '--from-export' });
-    } else throw new Error('Usage: npm run publish -- [--from-export | --check | --check-stored PUBLIC_SQLITE | --needs-collection [COVERAGE_JSON] | --complete COVERAGE_JSON [PUBLIC_SQLITE]]');
+    } else throw new Error('Usage: npm run publish -- [--from-export | --check | --check-stored PUBLIC_SQLITE | --queue-date COVERAGE_JSON | --needs-collection [COVERAGE_JSON] | --complete COVERAGE_JSON [PUBLIC_SQLITE] | --reports COVERAGE_JSON PUBLIC_SQLITE | --upload-assets FILE...]');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

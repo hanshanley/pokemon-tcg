@@ -2,19 +2,19 @@ name: Daily remote Pokemon sales
 
 on:
   schedule:
-    - cron: '15 0,6,12,18 * * *'
+    - cron: '15 */2 * * *'
   workflow_dispatch:
     inputs:
       max_products:
-        description: Maximum products per pass; use 100 for a small validation
+        description: Maximum products per bounded pass (1-2000); use 100 for validation
         type: number
-        default: 25000
+        default: 2000
       retry_failed:
         description: Revalidate exhausted failed products once (does not change source validation)
         type: boolean
         default: false
       republish:
-        description: Rebuild reports and downloads from the retained checkpoint after an interrupted publication
+        description: Rebuild reports and downloads from the retained checkpoint without collecting source data
         type: boolean
         default: false
 
@@ -43,7 +43,12 @@ jobs:
         env:
           TCGPLAYER_HISTORY_ACCESS: ${{ vars.TCGPLAYER_HISTORY_ACCESS }}
           REPUBLISH: ${{ inputs.republish || false }}
+          MAX_PRODUCTS: ${{ inputs.max_products || 2000 }}
         run: |
+          if [[ ! "$MAX_PRODUCTS" =~ ^[0-9]+$ ]] || (( MAX_PRODUCTS < 1 || MAX_PRODUCTS > 2000 )); then
+            echo "::error::Each collection pass must request between 1 and 2000 products."
+            exit 1
+          fi
           case "$TCGPLAYER_HISTORY_ACCESS" in
             ''|approved) mode=native ;;
             approved-export) mode=export ;;
@@ -59,9 +64,15 @@ jobs:
           git fetch --depth=1 origin main
           git show FETCH_HEAD:reports/latest/coverage.json > "$RUNNER_TEMP/coverage.json"
           collection_date=$(date -u +%F)
+          if [[ "$mode" == "native" ]]; then
+            collection_date=$(node src/publish.js --queue-date "$RUNNER_TEMP/coverage.json")
+          fi
           echo "date=$collection_date" >> "$GITHUB_OUTPUT"
-          needed=$(COLLECTION_DATE="$collection_date" node src/publish.js --needs-collection "$RUNNER_TEMP/coverage.json")
-          if [[ "$REPUBLISH" == "true" ]]; then needed=true; fi
+          if [[ "$REPUBLISH" == "true" ]]; then
+            needed=true
+          else
+            needed=$(COLLECTION_DATE="$collection_date" node src/publish.js --needs-collection "$RUNNER_TEMP/coverage.json")
+          fi
           echo "needed=$needed" >> "$GITHUB_OUTPUT"
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
   first:
@@ -69,24 +80,25 @@ jobs:
     if: ${{ needs.plan.outputs.needed == 'true' }}
     uses: ./.github/workflows/remote-volume-pass.yml
     with:
-      max_products: ${{ format('{0}', inputs.max_products || 25000) }}
+      max_products: ${{ format('{0}', inputs.max_products || 2000) }}
       collection_date: ${{ needs.plan.outputs.date }}
       retry_failed: ${{ inputs.retry_failed || false }}
       authorized_export: ${{ needs.plan.outputs.mode == 'export' }}
+      publish_only: ${{ inputs.republish || false }}
     secrets:
       history_export_url: ${{ secrets.TCGPLAYER_HISTORY_EXPORT_URL }}
   second:
     needs: [plan, first]
-    if: ${{ needs.plan.outputs.mode == 'native' }}
+    if: ${{ needs.plan.outputs.mode == 'native' && !inputs.republish }}
     uses: ./.github/workflows/remote-volume-pass.yml
     with:
-      max_products: ${{ format('{0}', inputs.max_products || 25000) }}
+      max_products: ${{ format('{0}', inputs.max_products || 2000) }}
       collection_date: ${{ needs.plan.outputs.date }}
   third:
     needs: [plan, second]
     uses: ./.github/workflows/remote-volume-pass.yml
     with:
-      max_products: ${{ format('{0}', inputs.max_products || 25000) }}
+      max_products: ${{ format('{0}', inputs.max_products || 2000) }}
       collection_date: ${{ needs.plan.outputs.date }}
   verify:
     needs: [plan, first, third]
@@ -101,11 +113,16 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - name: Require the planned date's entire catalog, not just a successful publication
+      - name: Verify the saved batch and require full reconciliation for completed sweeps
         run: |
           git fetch --depth=1 origin main
           git show FETCH_HEAD:reports/latest/coverage.json > "$RUNNER_TEMP/coverage.json"
-          node src/publish.js --complete "$RUNNER_TEMP/coverage.json"
           gh release download daily-volume --pattern remote-state.sqlite.gz --dir "$RUNNER_TEMP"
           gzip -dc "$RUNNER_TEMP/remote-state.sqlite.gz" > "$RUNNER_TEMP/public.sqlite"
-          node src/publish.js --complete "$RUNNER_TEMP/coverage.json" "$RUNNER_TEMP/public.sqlite"
+          status=$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1])).sweep.status' "$RUNNER_TEMP/coverage.json")
+          if [[ "$status" == "complete" ]]; then
+            node src/publish.js --complete "$RUNNER_TEMP/coverage.json" "$RUNNER_TEMP/public.sqlite"
+          else
+            node src/publish.js --reports "$RUNNER_TEMP/coverage.json" "$RUNNER_TEMP/public.sqlite"
+            echo "::notice::Bounded batch saved; the catalog queue remains $status. This is not a complete-sweep certification."
+          fi

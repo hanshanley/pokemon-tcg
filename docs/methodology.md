@@ -119,7 +119,7 @@ upload a new checkpoint or update reports; the independent health check
 still requires a full, fresh sweep.
 
 The GitHub Actions **Daily remote Pokemon sales** workflow is scheduled at
-**00:15 UTC daily**, with catch-up checks at **06:15, 12:15 and 18:15 UTC**,
+**15 minutes past every second UTC hour**,
 using GitHub-hosted Ubuntu runners, not this Mac.
 Its preflight skips collection only when today's sweep is complete and the
 published `catalog_source_build` still matches the source's build marker.
@@ -133,24 +133,36 @@ request timestamps and row counts are otherwise fresh.
 Current-sweep counts exclude retired catalog IDs, while their saved sales and
 past queue records remain retained. A catalog change cannot silently drop a new
 product from the queue or count a retired failure against current coverage.
+Completed sweeps retain their product-ID membership in the public checkpoint.
+Chart certification uses that same membership instead of counting retired queue
+entries or applying a future catalog to a historical sweep. Legacy checkpoints
+recover membership only when saved successful/empty counts exactly match the
+completed sweep; retained daily buckets are still checked before a date is plotted.
 The final workflow verification and daily health check also download the public
 checkpoint and open it read-only. They reconcile every current product ID with
 a successful or explicitly empty queue result, fresh matching history/price
 checks, saved bucket counts, the catalog build and published totals. A complete
 count in `coverage.json` alone is not enough to pass.
-It runs three sequential passes of up to 25,000 products each. Each pass
-has a four-hour collection deadline, persists its checkpoint, and publishes
+It runs three sequential passes of at most **2,000 requests each**. Larger manual
+limits are rejected before collection. Each pass has a **30-minute deadline**,
+persists its checkpoint, and publishes
 complete aggregate CSVs and coverage to the
 [`main` branch](https://github.com/hanshanley/pokemon-tcg/tree/main/reports/latest)
 as **Hans Hanley**, without Copilot trailers. Publishing uses an isolated checkout and
 does not stage or change the development worktree. `main` is the only branch;
 if code advances during publication, the report commit is rebased onto it
 before retrying the push.
-All passes share the UTC queue date selected by the planning job through
+An unfinished queue from the previous UTC day is resumed before a new daily queue
+is opened. All passes share the UTC queue date selected by the planning job through
 `COLLECTION_DATE`, including passes that start after midnight. Final verification
 checks that planned date while measuring observation/publication freshness
 against the actual current time. The separate daily health check still requires
 the current UTC day's sweep.
+Partial batches are reconciled against the saved checkpoint without being
+certified as full sweeps. Completed sweeps must also include verified coverage
+for the previous closed source date. Set the manual `republish` input to rebuild
+reports from the checkpoint without catalog refreshes or history requests;
+publication repair never implicitly launches another sweep.
 
 Remote passes wait at least 500 ms between history requests. If HTTP 403
 interrupts an otherwise productive session, collection stops making requests

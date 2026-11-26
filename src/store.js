@@ -69,6 +69,43 @@ export function csv(rows, fields) {
     .join('\r\n') + '\r\n';
 }
 
+export function volumeRunScope(db, run) {
+  if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='volume_run_products'").get()) {
+    const saved = db.prepare('SELECT product_ids FROM volume_run_products WHERE date_utc=?').get(run.date_utc);
+    if (saved) {
+      try {
+        const ids = JSON.parse(saved.product_ids);
+        return Array.isArray(ids) && ids.length === run.products_expected &&
+          new Set(ids).size === ids.length && ids.every(id => Number.isSafeInteger(id) && id > 0)
+          ? saved.product_ids : null;
+      } catch { return null; }
+    }
+  }
+  for (const currentOnly of [false, true]) {
+    const counts = db.prepare(`SELECT count(*) AS products_expected,
+      coalesce(sum(j.status='success'),0) AS products_with_history,
+      coalesce(sum(j.status='empty'),0) AS products_without_history,
+      json_group_array(j.product_id) AS product_ids
+      FROM volume_jobs j JOIN catalog_products c USING(product_id)
+      WHERE j.date_utc=? ${currentOnly ? 'AND c.is_current=1' : ''}`).get(run.date_utc);
+    if (['products_expected', 'products_with_history', 'products_without_history']
+      .every(key => counts[key] === run[key])) return counts.product_ids;
+  }
+  return null;
+}
+
+export function retainVolumeRunScopes(db) {
+  const runs = db.prepare(`SELECT * FROM volume_runs r WHERE status='complete'
+    AND products_expected>0 AND products_failed=0 AND products_checked=products_expected
+    AND products_with_history+products_without_history=products_expected
+    AND NOT EXISTS (SELECT 1 FROM volume_run_products p WHERE p.date_utc=r.date_utc)`).all();
+  const insert = db.prepare('INSERT INTO volume_run_products VALUES (?,?)');
+  for (const run of runs) {
+    const scope = volumeRunScope(db, run);
+    if (scope) insert.run(run.date_utc, scope);
+  }
+}
+
 export class Store {
   constructor(path) {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
@@ -176,6 +213,10 @@ export class Store {
       CREATE TABLE IF NOT EXISTS volume_export_days (
         date_utc TEXT PRIMARY KEY NOT NULL REFERENCES volume_runs(date_utc),
         source_date TEXT NOT NULL CHECK(date(source_date,'+1 day') IS date_utc)
+      );
+      CREATE TABLE IF NOT EXISTS volume_run_products (
+        date_utc TEXT PRIMARY KEY NOT NULL REFERENCES volume_runs(date_utc),
+        product_ids TEXT NOT NULL CHECK(json_valid(product_ids) AND json_type(product_ids)='array')
       );
       CREATE VIEW IF NOT EXISTS reported_volume AS
         SELECT v.*, 'tcgplayer-daily' AS source, c.name AS product_name,

@@ -129,7 +129,8 @@ they do not permanently disable collection. An authorized export covering a sing
 [retrieved automatically or imported offline](docs/methodology.md#offline-daily-history-recovery).
 
 The [daily volume workflow](.github/workflows/daily-volume.yml) runs at
-**00:15 UTC**, with catch-up checks at **06:15, 12:15 and 18:15 UTC**, on
+**15 minutes past every second UTC hour**, in sequential batches of at most
+**2,000 requests per pass**, on
 GitHub-hosted runners. An incomplete sweep resumes its saved queue; a complete
 sweep is skipped only if the source catalog build is unchanged.
 Publication goes to `main`. [Individual sales](.github/workflows/individual-sales.yml) are scheduled
