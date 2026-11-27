@@ -1,17 +1,17 @@
 {
   "title": "Daily Pokemon sales value on TCGplayer",
   "caption": "Daily observed Pokemon item-value bounds on TCGplayer, across English and Japanese catalog products. Bounds sum SKU-day quantities multiplied by actual low/high unit sale prices; they are not a confidence interval or exact revenue. Shipping and tax are excluded. Only closed source dates supported by verified catalog sweeps and complete price coverage are plotted. The line joins daily range midpoints, not estimated revenue; shading spans the actual low/high bounds. Only consecutive verified dates are joined; gaps are not interpolated. Unverified dates and incomplete prices remain in the CSV. A catalog sweep is not a certified marketplace total.",
-  "alt": "Pokemon sales value from 2026-10-06 to 2026-11-25. A line joins range midpoints with a shaded low-high band, not confidence intervals. Missing or unverified dates break the line and band. 51 dates shown. 6 retained dates excluded because coverage was unverified or preliminary. Latest collection sweep: 6,000 / 63,971 products checked; 2 failed. 0 dates omitted for incomplete prices.",
+  "alt": "Pokemon sales value from 2026-10-06 to 2026-11-25. A line joins range midpoints with a shaded low-high band, not confidence intervals. Missing or unverified dates break the line and band. 51 dates shown. 6 retained dates excluded because coverage was unverified or preliminary. Latest collection sweep: 7,998 / 63,971 products checked; 0 failed. 0 dates omitted for incomplete prices.",
   "source_sha256": {
-    "daily-trading.csv": "2303773a23fb72aff2bba4f49bcc41ce603c8bfcd77dd771d4f96e41218bd041",
-    "coverage.json": "d0bf20ea66d120325e4c05e06b04cead931fc4649f616cd460de71cf59d531f7"
+    "daily-trading.csv": "c41d57068d95cc43272e0c9e4803ad15c19716ec773a00a9615acb86c8862d38",
+    "coverage.json": "99e620b27be5eb17fc315744fb5ab79fd1f9f2a097a00433ef11c070d565d869"
   },
   "files_sha256": {
-    "sales-value.svg": "093dfed704ab294d346a4e406b15173a72b07db2b19933448fe7d8d9dacae591",
-    "sales-value.png": "20fddbec9b562062c8cbd1b6aab5709287fba2898ccd17fe1993dc958298af20",
-    "sales-value-moe.svg": "d2081705973bd4e5fe3785148eda1cb79aae637fd68af7cfa6bd1692744265c9",
-    "sales-value-moe.png": "c61fe84bd9ba7c2ff6c50e07357debc65ec12dc2add56cdadd82851ca86c041b",
-    "sales-value.csv": "81ed5317b7f2b1bf7f91551241b79864a6f5a97c069595930f43a4eb2f8477a4"
+    "sales-value.svg": "9e18ddfac5458fb9307f17966490b0ff5cf3f32e673624a6012c81e9b9079539",
+    "sales-value.png": "be271307b3b6a803254cea6ff6cef506d3206bd57c10ac236414e18b59c6258a",
+    "sales-value-moe.svg": "a7a22b3fb2c20b66c756aa4e435b51c3e99b27081d5ac34e70ea488538411c90",
+    "sales-value-moe.png": "40a1814fc21e7dffb6d08c5c36fab961cb3d4bcb7908d68fc2cb7a248148643c",
+    "sales-value.csv": "9d3603cf45b3c193523604950cabd87befc1653d6ad1f0f571f0dd6cab54e779"
   },
   "backgrounds": {
     "sales-value": "#F7F5F0",
@@ -20,12 +20,12 @@
   "latest_sweep": {
     "date_utc": "2026-11-27",
     "status": "paused",
-    "updated_at": "2026-11-27T03:00:27.643Z",
+    "updated_at": "2026-11-27T11:07:07.388Z",
     "products_expected": 63971,
-    "products_checked": 6000,
-    "products_with_history": 5963,
-    "products_without_history": 35,
-    "products_failed": 2
+    "products_checked": 7998,
+    "products_with_history": 7934,
+    "products_without_history": 64,
+    "products_failed": 0
   },
   "rows": 57
 }
