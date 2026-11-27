@@ -70,12 +70,12 @@ The two datasets are never added together.
 | 2 | Eevee | 1,393 | 855 |
 | 3 | Gengar | 1,193 | 594 |
 | 4 | Mewtwo | 1,119 | 700 |
-| 5 | Meowth | 1,033 | 709 |
+| 5 | Meowth | 1,031 | 708 |
 | 6 | Charizard | 991 | 607 |
 | 7 | Venusaur | 802 | 233 |
 | 8 | Mew | 762 | 532 |
 | 9 | Rayquaza | 725 | 347 |
-| 10 | Sylveon | 608 | 388 |
+| 10 | Sylveon | 607 | 387 |
 
 <!-- END POKEMON LEADERBOARD -->
 
