@@ -133,6 +133,9 @@ The [daily volume workflow](.github/workflows/daily-volume.yml) runs at
 **2,000 requests per pass**, on
 GitHub-hosted runners. An incomplete sweep resumes its saved queue; a complete
 sweep is skipped only if the source catalog build is unchanged.
+Verified progress can schedule another bounded run after a five-minute cooldown,
+up to 12 continuations, without relying on punctual GitHub schedules. Errors,
+no progress, or completion stop the chain; the request cap never increases.
 Publication goes to `main`. [Individual sales](.github/workflows/individual-sales.yml) are scheduled
 every three hours. No Mac or personal computer needs to be on.
 
@@ -141,7 +144,9 @@ on every daily-volume publication.
 Source errors remain visible in coverage and workflow results; a partial sweep
 is never labeled complete. GitHub may delay scheduled runs.
 A separate [daily check](.github/workflows/daily-data-check.yml) requires fresh
-publication, fresh native-source observations and a complete current-day sweep.
+publication, recent source progress and verified chart coverage. Partial queues
+remain explicitly partial; stalled collection and charts more than three source
+days behind fail the check.
 
 ## Setup
 

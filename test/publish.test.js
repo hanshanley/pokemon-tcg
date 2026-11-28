@@ -11,17 +11,66 @@ import { saveMonthHistory, syncVolume } from '../src/volume.js';
 import { fetchHistoryExport } from '../src/import-history.js';
 import { exportSnapshot, checkFreshness, checkCompleteSweep, checkCompleteDatabase,
   needsDailyCollection, publishGitHub, uploadReleaseAssets, updateReadmeLeaderboard, verifiedReportingDates,
-  checkReportDatabase, plannedCollectionDate } from '../src/publish.js';
+  checkReportDatabase, plannedCollectionDate, nextCollectionContinuation, checkCollectionHealth } from '../src/publish.js';
 
 test('bounded runs finish an overnight queue before opening a new daily sweep', () => {
   const now = new Date('2026-11-26T00:15:00Z');
   for (const status of ['paused', 'running', 'partial', 'failed']) {
     assert.equal(plannedCollectionDate({ sweep: { date_utc: '2026-11-25', status } }, now), '2026-11-25');
     assert.equal(plannedCollectionDate({ sweep: { date_utc: '2026-11-26', status } }, now), '2026-11-26');
+    assert.equal(plannedCollectionDate({ sweep: { date_utc: '2026-11-24', status } }, now), '2026-11-24');
   }
   for (const sweep of [undefined, { date_utc: '2026-11-25', status: 'complete' },
-    { date_utc: '2026-11-24', status: 'paused' }, { date_utc: '2026-11-27', status: 'paused' }]) {
+    { date_utc: '2026-10-01', status: 'paused' }, { date_utc: '2026-11-27', status: 'paused' }]) {
     assert.equal(plannedCollectionDate({ sweep }, now), '2026-11-26');
+  }
+});
+
+test('bounded continuations stop on completion, failures, no progress, or exhausted budgets', () => {
+  const now = new Date('2026-11-28T00:15:00Z');
+  const before = { date_utc: '2026-11-27', products_checked: 12000 };
+  const coverage = { source: 'tcgplayer-daily', sku_buckets: 30,
+    generated_at: now.toISOString(), last_successful_check_at: now.toISOString(),
+    sweep: { ...before, status: 'paused', products_checked: 18000,
+      products_expected: 64000, products_failed: 0 } };
+  assert.equal(nextCollectionContinuation(before, coverage, 12, now), 11);
+  assert.equal(nextCollectionContinuation(before, coverage, 1, now), 0);
+  assert.equal(nextCollectionContinuation(before, coverage, 0, now), null);
+  for (const change of [{ status: 'complete' }, { status: 'failed' }, { products_failed: 1 },
+    { products_checked: 12000 }, { products_checked: 11999 }, { products_checked: 64000 },
+    { date_utc: '2026-11-28' }]) {
+    assert.equal(nextCollectionContinuation(before, { ...coverage,
+      sweep: { ...coverage.sweep, ...change } }, 12, now), null);
+  }
+  for (const budget of [-1, 13, NaN, 1.5]) {
+    assert.throws(() => nextCollectionContinuation(before, coverage, budget, now), /budget/);
+  }
+});
+
+test('health checks accept honest overnight progress but reject stalled or stale chart coverage', () => {
+  const now = new Date('2026-11-28T00:15:00Z');
+  const coverage = { source: 'tcgplayer-daily', sku_buckets: 30,
+    generated_at: now.toISOString(), last_successful_check_at: '2026-11-27T22:30:00Z',
+    reporting_dates: ['2026-11-24','2026-11-25'],
+    sweep: { date_utc: '2026-11-27', status: 'paused', products_expected: 64000,
+      products_checked: 18000, products_with_history: 17000,
+      products_without_history: 1000, products_failed: 0 } };
+  assert.equal(checkCollectionHealth(coverage, now).complete_sweep, false);
+  assert.equal(checkCollectionHealth(coverage, now).last_verified_date, '2026-11-25');
+  assert.throws(() => checkCompleteSweep(coverage, now), /incomplete/);
+  for (const change of [{ status: 'failed' }, { products_failed: 1 }, { products_checked: 0 },
+    { date_utc: '2026-11-25' }, { products_with_history: 16000 }]) {
+    assert.throws(() => checkCollectionHealth({ ...coverage,
+      sweep: { ...coverage.sweep, ...change } }, now), /stalled/);
+  }
+  assert.throws(() => checkCollectionHealth({ ...coverage,
+    last_successful_check_at: '2026-11-27T18:00:00Z' }, now), /stalled/);
+  assert.equal(checkCollectionHealth({ ...coverage, catalog_products: 64000,
+    last_successful_check_at: '2026-11-27T12:00:00Z',
+    reporting_dates: ['2026-11-26'], sweep: { ...coverage.sweep, status: 'complete',
+      products_checked: 64000, products_with_history: 63000 } }, now).complete_sweep, true);
+  for (const reporting_dates of [[], ['2026-11-24'], ['2026-11-28']]) {
+    assert.throws(() => checkCollectionHealth({ ...coverage, reporting_dates }, now), /chart coverage/);
   }
 });
 

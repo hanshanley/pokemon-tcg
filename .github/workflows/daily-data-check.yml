@@ -19,11 +19,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: '22'
-      - name: Require fresh data and today's complete catalog sweep
+      - name: Verify saved progress, chart freshness, and honest sweep status
         run: |
           git fetch --depth=1 origin main
           git show FETCH_HEAD:reports/latest/coverage.json > "$RUNNER_TEMP/coverage.json"
-          node src/publish.js --complete "$RUNNER_TEMP/coverage.json"
           gh release download daily-volume --pattern remote-state.sqlite.gz --dir "$RUNNER_TEMP"
           gzip -dc "$RUNNER_TEMP/remote-state.sqlite.gz" > "$RUNNER_TEMP/public.sqlite"
-          node src/publish.js --complete "$RUNNER_TEMP/coverage.json" "$RUNNER_TEMP/public.sqlite"
+          node src/publish.js --health "$RUNNER_TEMP/coverage.json" "$RUNNER_TEMP/public.sqlite"

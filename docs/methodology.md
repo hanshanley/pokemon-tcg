@@ -116,7 +116,7 @@ Use `approved-export` for authorized bulk delivery, or `paused` to explicitly
 stop collection. Unknown values fail rather than silently selecting a source.
 A manual dispatch does not override an explicit pause. A paused workflow does not
 upload a new checkpoint or update reports; the independent health check
-still requires a full, fresh sweep.
+still checks saved progress and verified chart freshness.
 
 The GitHub Actions **Daily remote Pokemon sales** workflow is scheduled at
 **15 minutes past every second UTC hour**,
@@ -152,12 +152,19 @@ as **Hans Hanley**, without Copilot trailers. Publishing uses an isolated checko
 does not stage or change the development worktree. `main` is the only branch;
 if code advances during publication, the report commit is rebased onto it
 before retrying the push.
-An unfinished queue from the previous UTC day is resumed before a new daily queue
+After three verified passes, a still-paused queue with zero failed products and
+increased checked-product counts can schedule another bounded run after a
+five-minute cooldown. Each dispatch carries a decreasing `remaining_runs` budget
+(default 12, allowed 0-12); completion, no progress, errors, or an exhausted
+budget stop automatic continuation. Source-free republication never continues
+collection. This avoids depending on delayed GitHub schedules without increasing
+the per-pass request cap, deadline, or concurrency.
+An unfinished queue within the retained 30-day window is resumed before a new daily queue
 is opened. All passes share the UTC queue date selected by the planning job through
 `COLLECTION_DATE`, including passes that start after midnight. Final verification
 checks that planned date while measuring observation/publication freshness
-against the actual current time. The separate daily health check still requires
-the current UTC day's sweep.
+against the actual current time. Crossing a second midnight does not discard an
+unfinished queue.
 Partial batches are reconciled against the saved checkpoint without being
 certified as full sweeps. Completed sweeps must also include verified coverage
 for the previous closed source date. Set the manual `republish` input to rebuild
@@ -307,15 +314,22 @@ access-denial, cancellation, or unclassified failures. Recovery restores the
 last published public checkpoint; work lost with a runner may need recollection.
 
 The GitHub Actions **Daily sales data freshness** workflow checks at 16:45 UTC
-and can be run manually. It fails if either publication or successful source
-checking is over 26 hours old, or if today's catalog sweep is incomplete.
-A newly generated timestamp alone cannot hide stale or partial data.
+and can be run manually. It reconciles the checkpoint and reporting dates, and
+fails if publication or successful source checking is over 26 hours old, if an
+unfinished queue has made no successful observations for six hours, if the
+queue is more than two UTC days old, or if the latest verified chart date is
+more than three UTC source days behind. Failed products also fail health checks.
+A progressing partial queue can pass health without being certified as complete;
+completed queues still undergo the full per-product checkpoint checks. The check
+does not demand a new complete sweep immediately after midnight. A newly generated
+timestamp alone cannot hide stalled or partial data.
 Even a complete catalog sweep does not certify every marketplace transaction:
 the native source supplies daily SKU aggregates, and empty histories remain
 unknown. The overlapping 30-day window is re-fetched on later daily sweeps to
 retain late sales and source corrections; current-day counts are preliminary.
 Run **Daily remote Pokemon sales** manually with `max_products=100`
-for a bounded validation, or its default of 25,000 for production.
+for a bounded validation (set `remaining_runs=0` to disable continuation), or its
+default of 2,000 for production.
 
 ## Daily volume storage and reporting
 

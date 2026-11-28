@@ -142,10 +142,49 @@ export async function needsDailyCollection(coverage, {
 
 export function plannedCollectionDate(coverage, now = new Date()) {
   const today = now.toISOString().slice(0,10), sweep = coverage.sweep;
-  const previous = new Date(Date.parse(today) - 86400000).toISOString().slice(0,10);
+  const oldest = new Date(Date.parse(today) - 28 * 86400000).toISOString().slice(0,10);
   if (sweep && ['paused', 'running', 'partial', 'failed'].includes(sweep.status) &&
-      [today, previous].includes(sweep.date_utc)) return sweep.date_utc;
+      /^\d{4}-\d{2}-\d{2}$/.test(sweep.date_utc) &&
+      sweep.date_utc >= oldest && sweep.date_utc <= today) return sweep.date_utc;
   return today;
+}
+
+export function nextCollectionContinuation(before, coverage, remaining, now = new Date()) {
+  if (!Number.isSafeInteger(remaining) || remaining < 0 || remaining > 12) {
+    throw new Error('Provide a continuation budget between 0 and 12.');
+  }
+  checkFreshness(coverage, now);
+  const sweep = coverage.sweep;
+  if (!remaining || !before || sweep?.date_utc !== before.date_utc || sweep.status !== 'paused' ||
+      sweep.products_failed !== 0 || !Number.isSafeInteger(sweep.products_checked) ||
+      !Number.isSafeInteger(before.products_checked) ||
+      sweep.products_checked <= before.products_checked ||
+      sweep.products_checked >= sweep.products_expected) return null;
+  return remaining - 1;
+}
+
+export function checkCollectionHealth(coverage, now = new Date()) {
+  checkFreshness(coverage, now);
+  const sweep = coverage.sweep;
+  const today = Date.parse(now.toISOString().slice(0,10));
+  const latest = coverage.reporting_dates?.at(-1);
+  if (!latest || !Number.isFinite(Date.parse(latest)) ||
+      Date.parse(latest) >= today || today - Date.parse(latest) > 3 * 86400000) {
+    throw new Error('Verified chart coverage is missing or more than three source days behind.');
+  }
+  if (!sweep || !['complete','paused','running'].includes(sweep.status) ||
+      sweep.products_failed !== 0 || !(sweep.products_expected > 0) ||
+      !(sweep.products_checked > 0) || sweep.products_checked > sweep.products_expected ||
+      sweep.products_with_history + sweep.products_without_history !== sweep.products_checked ||
+      !Number.isFinite(Date.parse(sweep.date_utc)) || Date.parse(sweep.date_utc) > today ||
+      today - Date.parse(sweep.date_utc) > 2 * 86400000 ||
+      sweep.status !== 'complete' && now - Date.parse(coverage.last_successful_check_at) > 6 * 3600000) {
+    throw new Error('Collection is stalled, failed, or its saved queue is more than two days old.');
+  }
+  if (sweep.status === 'complete') checkCompleteSweep(coverage, now, sweep.date_utc);
+  return { status: sweep.status, products_checked: sweep.products_checked,
+    products_expected: sweep.products_expected, last_verified_date: latest,
+    complete_sweep: sweep.status === 'complete' };
 }
 
 function* csvChunks(rows, fields) {
@@ -450,17 +489,26 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const db = new DatabaseSync(resolve(args[1]), { readOnly: true });
       try { console.log(JSON.stringify(checkStoredSweep(db))); }
       finally { db.close(); }
-    } else if (['--check','--complete','--reports'].includes(args[0]) &&
-        (args[0] !== '--reports' || args.length === 3) &&
+    } else if (['--check','--complete','--reports','--health'].includes(args[0]) &&
+        (!['--reports','--health'].includes(args[0]) || args.length === 3) &&
         args.length <= (args[0] === '--check' ? 2 : 3)) {
       const coverage = JSON.parse(readFileSync(args[1] ?? 'reports/latest/coverage.json', 'utf8'));
-      (args[0] === '--complete' ? checkCompleteSweep : checkFreshness)(
+      (args[0] === '--complete' ? checkCompleteSweep : args[0] === '--health' ? checkCollectionHealth : checkFreshness)(
         coverage, new Date(), process.env.COLLECTION_DATE);
       if (args[2]) {
         const db = new DatabaseSync(resolve(args[2]), { readOnly: true });
-        try { console.log(JSON.stringify(args[0] === '--reports'
-          ? checkReportDatabase(db, coverage)
-          : checkCompleteDatabase(db, coverage, new Date(), process.env.COLLECTION_DATE))); }
+        try {
+          const result = ['--reports','--health'].includes(args[0])
+            ? checkReportDatabase(db, coverage)
+            : checkCompleteDatabase(db, coverage, new Date(), process.env.COLLECTION_DATE);
+          if (args[0] === '--health') {
+            if (coverage.sweep.status === 'complete') {
+              checkCompleteDatabase(db, coverage, new Date(), coverage.sweep.date_utc);
+            }
+            console.log(JSON.stringify(checkCollectionHealth(coverage)));
+          }
+          console.log(JSON.stringify(result));
+        }
         finally { db.close(); }
       }
       console.log('Daily GitHub data passed its checks; marketplace completeness remains unverified.');
@@ -468,6 +516,6 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const dir = resolve(process.env.DATA_DIR ?? 'data');
       if (!statSync(join(dir, 'sales.sqlite')).size) throw new Error('Sales database is empty.');
       await publishGitHub(dir, { fromExport: args[0] === '--from-export' });
-    } else throw new Error('Usage: npm run publish -- [--from-export | --check | --check-stored PUBLIC_SQLITE | --queue-date COVERAGE_JSON | --needs-collection [COVERAGE_JSON] | --complete COVERAGE_JSON [PUBLIC_SQLITE] | --reports COVERAGE_JSON PUBLIC_SQLITE | --upload-assets FILE...]');
+    } else throw new Error('Usage: npm run publish -- [--from-export | --check | --check-stored PUBLIC_SQLITE | --queue-date COVERAGE_JSON | --needs-collection [COVERAGE_JSON] | --complete COVERAGE_JSON [PUBLIC_SQLITE] | --reports COVERAGE_JSON PUBLIC_SQLITE | --health COVERAGE_JSON PUBLIC_SQLITE | --upload-assets FILE...]');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
 }

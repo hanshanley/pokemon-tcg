@@ -46,6 +46,22 @@ test('scheduled collection caps batches and publication-only dispatch never invo
     }
 });
 
+test('continuations validate budgets and cannot run after publication-only or unsuccessful passes', () => {
+  const workflow = readFileSync(new URL('../.github/workflows/daily-volume.yml', import.meta.url), 'utf8');
+  const guard = workflow.match(/          if \[\[ ! "\$REMAINING_RUNS"[\s\S]*?          fi/)[0];
+  const validate = budget => execFileSync('bash', ['-e', '-c', guard], {
+    env: { ...process.env, REMAINING_RUNS: String(budget) }, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  for (const budget of [0, 1, 12]) validate(budget);
+  for (const budget of [-1, 13, 'bad', '1; exit 0']) assert.throws(() => validate(budget));
+  const planning = workflow.match(/- name: Plan a bounded continuation[\s\S]*?  continue:/)[0];
+  assert.match(planning, /!inputs\.republish && needs\.first\.result == 'success' && needs\.third\.result == 'success'/);
+  const continuation = workflow.split('  continue:')[1];
+  assert.match(continuation, /needs\.verify\.outputs\.next != '' && needs\.verify\.outputs\.next != 'stop'/);
+  assert.match(continuation, /sleep 300/);
+  assert.match(continuation, /-f "remaining_runs=\$NEXT"/);
+});
+
 test('historical backfills survive newer rolling windows, public checkpoints and complete downloads', async t => {
   const directory = mkdtempSync(join(tmpdir(), 'pokemon-retained-history-'));
   t.after(() => rmSync(directory, { recursive: true }));

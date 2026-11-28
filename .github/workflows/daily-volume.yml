@@ -17,9 +17,14 @@ on:
         description: Rebuild reports and downloads from the retained checkpoint without collecting source data
         type: boolean
         default: false
+      remaining_runs:
+        description: Maximum additional bounded runs for this queue (0-12); stops on completion, errors, or no progress
+        type: string
+        default: '12'
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: remote-daily-data
@@ -33,6 +38,7 @@ jobs:
       needed: ${{ steps.plan.outputs.needed }}
       mode: ${{ steps.plan.outputs.mode }}
       date: ${{ steps.plan.outputs.date }}
+      baseline: ${{ steps.plan.outputs.baseline }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -44,9 +50,14 @@ jobs:
           TCGPLAYER_HISTORY_ACCESS: ${{ vars.TCGPLAYER_HISTORY_ACCESS }}
           REPUBLISH: ${{ inputs.republish || false }}
           MAX_PRODUCTS: ${{ inputs.max_products || 2000 }}
+          REMAINING_RUNS: ${{ inputs.remaining_runs || '12' }}
         run: |
           if [[ ! "$MAX_PRODUCTS" =~ ^[0-9]+$ ]] || (( MAX_PRODUCTS < 1 || MAX_PRODUCTS > 2000 )); then
             echo "::error::Each collection pass must request between 1 and 2000 products."
+            exit 1
+          fi
+          if [[ ! "$REMAINING_RUNS" =~ ^([0-9]|1[0-2])$ ]]; then
+            echo "::error::Continuation budget must be between 0 and 12."
             exit 1
           fi
           case "$TCGPLAYER_HISTORY_ACCESS" in
@@ -68,6 +79,7 @@ jobs:
             collection_date=$(node src/publish.js --queue-date "$RUNNER_TEMP/coverage.json")
           fi
           echo "date=$collection_date" >> "$GITHUB_OUTPUT"
+          echo "baseline=$(node -p 'const c=JSON.parse(require("fs").readFileSync(process.argv[1])); JSON.stringify({date_utc:process.argv[2],products_checked:c.sweep?.date_utc===process.argv[2]?c.sweep.products_checked:0})' "$RUNNER_TEMP/coverage.json" "$collection_date")" >> "$GITHUB_OUTPUT"
           if [[ "$REPUBLISH" == "true" ]]; then
             needed=true
           else
@@ -105,9 +117,13 @@ jobs:
     if: ${{ always() && !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      next: ${{ steps.continuation.outputs.next }}
     env:
       GH_TOKEN: ${{ github.token }}
       COLLECTION_DATE: ${{ needs.plan.outputs.date }}
+      BASELINE: ${{ needs.plan.outputs.baseline }}
+      REMAINING_RUNS: ${{ inputs.remaining_runs || '12' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
@@ -126,3 +142,29 @@ jobs:
             node src/publish.js --reports "$RUNNER_TEMP/coverage.json" "$RUNNER_TEMP/public.sqlite"
             echo "::notice::Bounded batch saved; the catalog queue remains $status. This is not a complete-sweep certification."
           fi
+      - name: Plan a bounded continuation only after verified progress
+        id: continuation
+        if: ${{ needs.plan.outputs.mode == 'native' && !inputs.republish && needs.first.result == 'success' && needs.third.result == 'success' }}
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync, appendFileSync } from 'node:fs';
+          import { nextCollectionContinuation } from './src/publish.js';
+          const coverage = JSON.parse(readFileSync(`${process.env.RUNNER_TEMP}/coverage.json`));
+          const next = nextCollectionContinuation(JSON.parse(process.env.BASELINE), coverage, Number(process.env.REMAINING_RUNS));
+          appendFileSync(process.env.GITHUB_OUTPUT, `next=${next ?? 'stop'}\n`);
+          JS
+  continue:
+    needs: [plan, verify]
+    if: ${{ needs.verify.outputs.next != '' && needs.verify.outputs.next != 'stop' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      NEXT: ${{ needs.verify.outputs.next }}
+      MAX_PRODUCTS: ${{ inputs.max_products || 2000 }}
+    steps:
+      - name: Cool down before resuming the saved queue in another bounded run
+        run: |
+          sleep 300
+          gh workflow run daily-volume.yml --ref main -f "max_products=$MAX_PRODUCTS" -f "remaining_runs=$NEXT"
