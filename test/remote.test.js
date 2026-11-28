@@ -306,6 +306,56 @@ test('remote passes retry trailing product failures within the same request budg
   assert.equal(closed, 2);
 });
 
+test('gateway retries remain in one session and cannot exceed the pass request cap', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  for (let id = 1; id <= 2; id++) store.db.prepare(`INSERT INTO catalog_products VALUES
+    (?,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run(id);
+  const calls = [], waits = [];
+  let sessions = 0;
+  const options = { refreshCatalog: async () => {}, log: () => {},
+    pause: async delay => waits.push(delay), requestPause: async () => {},
+    createTransport: async () => {
+      sessions++;
+      return { close: async () => {}, fetchHistory: async id => {
+        calls.push(id);
+        return { status: calls.length === 1 ? 502 : calls.length === 2 ? 504 : 200,
+          body: { count: 0 } };
+      } };
+    } };
+  const state = await collectRemote(store, { ...options, limit: 3 });
+  assert.deepEqual(calls, [1,1,1]);
+  assert.deepEqual(waits, [5000,15000]);
+  assert.equal(sessions, 1);
+  assert.equal(state.status, 'paused');
+  assert.equal(state.products_failed, 0);
+  assert.equal(state.products_checked, 1);
+  assert.deepEqual({ ...store.db.prepare('SELECT status,attempts FROM volume_jobs WHERE product_id=2').get() },
+    { status: 'pending', attempts: 0 });
+  assert.equal((await collectRemote(store, { ...options, limit: 1 })).status, 'complete');
+  assert.deepEqual(calls, [1,1,1,2]);
+});
+
+test('exhausted server retries remain failed instead of looping forever', async t => {
+  const store = new Store(':memory:');
+  t.after(() => store.close());
+  store.db.prepare(`INSERT INTO catalog_products VALUES
+    (1,3,604,'Set','Charizard','','','','','["Charizard"]','','build',1)`).run();
+  const waits = [];
+  let requests = 0;
+  const state = await collectRemote(store, { limit: 3, refreshCatalog: async () => {}, log: () => {},
+    pause: async delay => waits.push(delay), requestPause: async () => {},
+    createTransport: async () => ({ close: async () => {}, fetchHistory: async () => {
+      requests++;
+      return { status: 503, body: null };
+    } }),
+  });
+  assert.equal(requests, 3);
+  assert.deepEqual(waits, [5000,15000]);
+  assert.equal(state.products_failed, 1);
+  assert.notEqual(state.status, 'complete');
+});
+
 test('one unavailable product does not block the rest of the catalog or claim completion', async t => {
   const store = new Store(':memory:');
   t.after(() => store.close());

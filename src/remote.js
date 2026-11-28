@@ -75,10 +75,22 @@ export async function collectRemote(store, {
           state = await syncVolume(store, { ...transport, limit: remaining - requests, signal, log, now, queueDate,
             pause: requestPause,
             fetchHistory: async id => {
-              requests++;
-              try { return await transport.fetchHistory(id); }
-              catch (error) {
-                if (error.status == null) error.code = 'HISTORY_TRANSPORT';
+              try {
+                for (let retry = 0; ; retry++) {
+                  if (requests >= remaining) throw Object.assign(
+                    new Error('Remote pass request budget exhausted.'), { code: 'HISTORY_REQUEST_LIMIT' });
+                  requests++;
+                  const response = await transport.fetchHistory(id);
+                  if (!(response.status >= 500 && response.status <= 599) || retry >= 2 ||
+                      requests >= remaining || signal?.aborted) return response;
+                  log(`History HTTP ${response.status} for product ${id}; retry ${retry + 1}/2 within the pass request budget.`);
+                  await pause(retry === 0 ? 5000 : 15000);
+                  if (signal?.aborted) throw Object.assign(
+                    new Error('Remote collection deadline reached.'), { code: 'HISTORY_REQUEST_LIMIT' });
+                  await requestPause();
+                }
+              } catch (error) {
+                if (error.status == null && error.code !== 'HISTORY_REQUEST_LIMIT') error.code = 'HISTORY_TRANSPORT';
                 throw error;
               }
             } });

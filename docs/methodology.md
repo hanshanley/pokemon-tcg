@@ -178,6 +178,9 @@ does not reset after more progress. An initial denial, HTTP 401, a second
 denial, or an exhausted request/time budget stops the pass; missing products
 remain failed or pending rather than becoming empty histories. No proxies,
 network changes or replacement identities are used for that recheck.
+HTTP 5xx errors get at most two same-session retries after five and 15 seconds.
+Every retry consumes the same 2,000-request pass budget; unrequested products
+remain pending when it runs out. Exhausted server failures stop continuation.
 
 The [daily-volume release](https://github.com/hanshanley/pokemon-tcg/releases/tag/daily-volume)
 contains **all retained daily SKU buckets** and the entire current product
