@@ -76,12 +76,16 @@ export async function collectRemote(store, {
             pause: requestPause,
             fetchHistory: async id => {
               try {
+                const attempts = store.db.prepare('SELECT attempts FROM volume_jobs WHERE date_utc=? AND product_id=?')
+                  .get(queueDate,id).attempts;
                 for (let retry = 0; ; retry++) {
                   if (requests >= remaining) throw Object.assign(
                     new Error('Remote pass request budget exhausted.'), { code: 'HISTORY_REQUEST_LIMIT' });
+                  if (retry) store.db.prepare('UPDATE volume_jobs SET attempts=attempts+1 WHERE date_utc=? AND product_id=?')
+                    .run(queueDate,id);
                   requests++;
                   const response = await transport.fetchHistory(id);
-                  if (!(response.status >= 500 && response.status <= 599) || retry >= 2 ||
+                  if (!(response.status >= 500 && response.status <= 599) || retry >= 2 || attempts + retry >= 3 ||
                       requests >= remaining || signal?.aborted) return response;
                   log(`History HTTP ${response.status} for product ${id}; retry ${retry + 1}/2 within the pass request budget.`);
                   await pause(retry === 0 ? 5000 : 15000);
