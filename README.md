@@ -62,20 +62,20 @@ The two datasets are never added together.
 
 <!-- BEGIN POKEMON LEADERBOARD -->
 
-**2026-11-25** (TCGplayer source date; verified catalog sweep) · ranked by reported units sold.
+**2026-11-26** (TCGplayer source date; verified catalog sweep) · ranked by reported units sold.
 
 | Rank | Pokemon | Units sold | Reported transactions |
 | ---: | --- | ---: | ---: |
-| 1 | Pikachu | 6,106 | 3,483 |
-| 2 | Eevee | 1,374 | 840 |
-| 3 | Gengar | 1,173 | 584 |
-| 4 | Mewtwo | 1,099 | 687 |
-| 5 | Meowth | 1,027 | 706 |
-| 6 | Charizard | 981 | 600 |
-| 7 | Venusaur | 802 | 233 |
-| 8 | Mew | 743 | 522 |
-| 9 | Rayquaza | 721 | 343 |
-| 10 | Snorlax | 598 | 368 |
+| 1 | Pikachu | 6,477 | 3,311 |
+| 2 | Ponyta | 1,686 | 375 |
+| 3 | Mewtwo | 1,463 | 645 |
+| 4 | Gengar | 1,419 | 444 |
+| 5 | Eevee | 1,037 | 683 |
+| 6 | Meowth | 883 | 631 |
+| 7 | Charizard | 734 | 552 |
+| 8 | Rayquaza | 728 | 502 |
+| 9 | Mew | 656 | 424 |
+| 10 | Psyduck | 651 | 275 |
 
 <!-- END POKEMON LEADERBOARD -->
 
