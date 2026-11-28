@@ -1,30 +1,30 @@
 {
   "source": "tcgplayer-public-individual-sales",
-  "generated_at": "2026-11-27T23:41:41.244Z",
-  "records": 292,
-  "units": 338,
-  "item_sales_cents": 6544534,
+  "generated_at": "2026-11-28T08:22:30.068Z",
+  "records": 304,
+  "units": 351,
+  "item_sales_cents": 6808269,
   "first_sale_utc": "2026-10-13T08:48:19.327Z",
-  "last_sale_utc": "2026-11-27T22:30:15.573Z",
-  "observed_at": "2026-11-27T23:41:39.871Z",
-  "item_sales_usd": 65445.34,
-  "last_successful_check_at": "2026-11-27T23:41:39.871Z",
+  "last_sale_utc": "2026-11-28T06:05:10.903Z",
+  "observed_at": "2026-11-28T08:22:28.439Z",
+  "item_sales_usd": 68082.69,
+  "last_successful_check_at": "2026-11-28T08:22:28.439Z",
   "scope": "Bounded public captures of the checkpoint products, not the whole Pokemon catalog.",
   "products": [
     {
       "product_id": 42382,
       "name": "Charizard",
       "status": "partial",
-      "last_collected": "2026-11-27T23:41:04.931Z",
+      "last_collected": "2026-11-28T08:22:15.765Z",
       "rows_seen": 5,
-      "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity. No overlap with saved history; sales between collections may be missing.",
+      "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity.",
       "possible_gap_collections": 2
     },
     {
       "product_id": 565879,
       "name": "Pikachu",
       "status": "partial",
-      "last_collected": "2026-11-27T23:41:08.208Z",
+      "last_collected": "2026-11-28T08:22:19.915Z",
       "rows_seen": 5,
       "warning": "The site requires sign-in for additional history. Scope: website default filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity.",
       "possible_gap_collections": 0
@@ -33,18 +33,18 @@
       "product_id": 565606,
       "name": "Surging Sparks Booster Box",
       "status": "partial",
-      "last_collected": "2026-11-27T23:41:36.090Z",
+      "last_collected": "2026-11-28T08:22:24.133Z",
       "rows_seen": 5,
       "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity. No overlap with saved history; sales between collections may be missing.",
-      "possible_gap_collections": 1
+      "possible_gap_collections": 2
     },
     {
       "product_id": 246708,
       "name": "Trevenant VMAX",
       "status": "partial",
-      "last_collected": "2026-11-27T23:41:39.871Z",
+      "last_collected": "2026-11-28T08:22:28.439Z",
       "rows_seen": 5,
-      "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity. No overlap with saved history; sales between collections may be missing.",
+      "warning": "The site requires sign-in for additional history. Scope: cleared website filters. Only browser-visible history is observed; completeness is unverified. No stable sale ID is exposed; identical records are deduplicated by content and multiplicity.",
       "possible_gap_collections": 2
     }
   ],
