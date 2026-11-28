@@ -69,7 +69,7 @@ The two datasets are never added together.
 | 1 | Pikachu | 6,107 | 3,484 |
 | 2 | Eevee | 1,374 | 840 |
 | 3 | Gengar | 1,173 | 584 |
-| 4 | Mewtwo | 1,100 | 688 |
+| 4 | Mewtwo | 1,099 | 687 |
 | 5 | Meowth | 1,027 | 706 |
 | 6 | Charizard | 981 | 600 |
 | 7 | Venusaur | 802 | 233 |
