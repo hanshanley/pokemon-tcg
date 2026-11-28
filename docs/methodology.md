@@ -323,6 +323,9 @@ A progressing partial queue can pass health without being certified as complete;
 completed queues still undergo the full per-product checkpoint checks. The check
 does not demand a new complete sweep immediately after midnight. A newly generated
 timestamp alone cannot hide stalled or partial data.
+Because checkpoint uploads precede report commits, health validation refetches
+both sides up to twice after five-minute waits if a check overlaps publication;
+persistent errors still fail.
 Even a complete catalog sweep does not certify every marketplace transaction:
 the native source supplies daily SKU aggregates, and empty histories remain
 unknown. The overlapping 30-day window is re-fetched on later daily sweeps to

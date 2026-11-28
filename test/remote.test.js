@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Store } from '../src/store.js';
@@ -60,6 +60,38 @@ test('continuations validate budgets and cannot run after publication-only or un
   assert.match(continuation, /needs\.verify\.outputs\.next != '' && needs\.verify\.outputs\.next != 'stop'/);
   assert.match(continuation, /sleep 300/);
   assert.match(continuation, /-f "remaining_runs=\$NEXT"/);
+});
+
+test('health verification refetches racing publications but still fails persistent errors', t => {
+  const directory = mkdtempSync(join(tmpdir(), 'pokemon-health-retry-'));
+  t.after(() => rmSync(directory, { recursive: true }));
+  const workflow = readFileSync(new URL('../.github/workflows/daily-data-check.yml', import.meta.url), 'utf8');
+  const script = workflow.split('        run: |\n')[1];
+  for (const [command, body] of Object.entries({
+    git: 'exit 0', gh: 'exit 0', gzip: 'exit 0',
+    sleep: 'echo wait >> "$RUNNER_TEMP/waits"',
+    node: `count=0
+      if [[ -f "$RUNNER_TEMP/count" ]]; then read -r count < "$RUNNER_TEMP/count"; fi
+      count=$((count + 1))
+      echo "$count" > "$RUNNER_TEMP/count"
+      [[ "$PERMANENT" != true && "$count" -ge 2 ]]`,
+  })) {
+    const path = join(directory, command);
+    writeFileSync(path, `#!/bin/bash\n${body}\n`);
+    chmodSync(path, 0o755);
+  }
+  const run = permanent => execFileSync('bash', ['-e', '-c', script], {
+    env: { ...process.env, RUNNER_TEMP: directory, PATH: `${directory}:${process.env.PATH}`,
+      PERMANENT: String(permanent) }, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  run(false);
+  assert.equal(readFileSync(join(directory, 'count'), 'utf8').trim(), '2');
+  assert.equal(readFileSync(join(directory, 'waits'), 'utf8').trim(), 'wait');
+  rmSync(join(directory, 'count'));
+  rmSync(join(directory, 'waits'));
+  assert.throws(() => run(true), error => error.status === 1);
+  assert.equal(readFileSync(join(directory, 'count'), 'utf8').trim(), '3');
+  assert.equal(readFileSync(join(directory, 'waits'), 'utf8').trim().split('\n').length, 2);
 });
 
 test('historical backfills survive newer rolling windows, public checkpoints and complete downloads', async t => {
